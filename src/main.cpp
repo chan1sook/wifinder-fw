@@ -1,17 +1,11 @@
-#define WIFINDER_VERSION 2
-#define WIFINDER_VERSION_FULL "1.0.1"
-
-// #define ENABLE_OTA
+#define WIFINDER_VERSION 3
+#define WIFINDER_VERSION_FULL "1.1.0"
 
 #include <Arduino.h>
 #include <Wire.h>
+#include <HTTPClient.h>
 
-#ifdef ENABLE_OTA
-  #include "EEPROM.h"
-  #include <WebServer.h>
-  #include <ESPmDNS.h>
-  #include <Update.h>
-#endif
+#include <ESP32httpUpdate.h>
 
 #include <Adafruit_Sensor.h>
 #include <Adafruit_HMC5883_U.h>
@@ -43,8 +37,9 @@ static lv_color_t buf[screenWidth * 10];
 
 #define PAGE_HOME_LOADED 0b1
 #define PAGE_WIFISCAN_LOADED 0b10
+#define PAGE_OTAPROGRESS_LOADED 0b100
 
-uint8_t pageLoadedFlag = 0b00;
+uint8_t pageLoadedFlag = 0b000;
 uint8_t otaClickCount = 0;
 
 #define LABEL_LIST_LENGTH 5
@@ -70,15 +65,22 @@ unsigned long wifiUiUpdateTime = 0;
 unsigned long compassTime = 0;
 unsigned long buzzerUpdateRate = 5000;
 unsigned long buzzerTime = 0;
+unsigned long otaTime = 0;
 
 #define BUZZER_GPIO 33
 bool buzzerAlarm = false;
 
-#ifdef ENABLE_OTA
-  WebServer server(80);
-  const char* dnsHost = "esp32";
-#endif
-const char* apPassword = "SensesWiFinder";
+const char* fwVersionUri = "http://ota.sensesiot.net:10006/fwversion";
+const char* fwOTAUri = "http://ota.sensesiot.net:10006/getfw";
+bool otaBegin = false;
+
+static void lv_tick_task(void* arg);
+
+esp_timer_handle_t ticker_timer;
+const esp_timer_create_args_t ticker_timer_args = {
+  .callback = &lv_tick_task,
+  .name = "lv_tick_task"
+};
 
 void updateScanUiOptions() {
   if(!(pageLoadedFlag & PAGE_WIFISCAN_LOADED)) {
@@ -272,7 +274,6 @@ void updateRssi() {
   }
 }
 
-
 void updateWifiScanUi() {
   if(!(pageLoadedFlag & PAGE_WIFISCAN_LOADED)) {
     return;
@@ -397,20 +398,110 @@ void onTextAreaPasswordFocus(lv_event_t * e) {
   lv_keyboard_set_textarea(ui_Keyboard2, ui_TextAreaPassword);
 }
 
-void onStartOTA(lv_event_t * e) {
+void actualOTAAction() {
   const char *ssid = lv_textarea_get_text(ui_TextAreaSSID);
   const char *pw = lv_textarea_get_text(ui_TextAreaPassword);
+  
+  lv_label_set_text(ui_LabelOTAProcess, "Connecting to Server");
 
   Serial.println("OTA Inputs");
   Serial.print("SSID: ");
   Serial.println(ssid);
-  Serial.print("Password: ");
-  Serial.println(pw);
+  if(strlen(pw) > 0) {
+    Serial.println("With Password");
+    WiFi.begin(ssid, pw);
+  } else {
+    Serial.println("No Password");
+    WiFi.begin(ssid);
+  }
+
+  WiFi.waitForConnectResult(30000);
+  
+  if(WiFi.status() != WL_CONNECTED) {
+    Serial.println("Can't Connect to Server");
+    lv_label_set_text(ui_LabelOTAProcess, "Can't Connect to Server");
+    lv_obj_clear_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_CLICKABLE);
+    return;
+  }
+
+  Serial.println("Connected");
+  lv_label_set_text(ui_LabelOTAProcess, "Get Firmware Info from Server");
+
+  HTTPClient http;
+  
+  // Your Domain name with URL path or IP address with path
+  http.begin(fwVersionUri);
+      
+  // Send HTTP GET request
+  int httpResponseCode = http.GET();
+  if (httpResponseCode != 200) {
+    http.end();
+
+    Serial.print("Error code: ");
+    Serial.println(httpResponseCode);
+
+    lv_label_set_text(ui_LabelOTAProcess, "Can't Get Info from Server");
+    lv_obj_clear_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_CLICKABLE);
+    return;
+  }
+
+  Serial.print("HTTP Response code: ");
+  Serial.println(httpResponseCode);
+  String version = http.getString();
+  Serial.print("VERSION: ");
+  Serial.println(version);
+  
+  // Free resources
+  http.end();
+
+  if(atoi(version.c_str()) <= WIFINDER_VERSION) {
+    lv_label_set_text(ui_LabelOTAProcess, "Up to date");
+    lv_obj_clear_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_CLICKABLE);
+    return;
+  }
+  
+  lv_label_set_text(ui_LabelOTAProcess, "Download OTA File");
+
+  t_httpUpdate_return ret = ESPhttpUpdate.update(fwOTAUri);
+  switch(ret) {
+    case HTTP_UPDATE_FAILED:
+      Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+      lv_label_set_text(ui_LabelOTAProcess, ESPhttpUpdate.getLastErrorString().c_str());
+      break;
+    case HTTP_UPDATE_NO_UPDATES:
+      Serial.println("HTTP_UPDATE_NO_UPDATES");
+      lv_label_set_text(ui_LabelOTAProcess, "No update");
+      break;
+    case HTTP_UPDATE_OK:
+      Serial.println("HTTP_UPDATE_OK");
+      ESP.restart();
+      return;
+  }
+
+  lv_obj_clear_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_CLICKABLE);
+}
+
+void onOTAProgressPageLoaded(lv_event_t * e) {
+  lv_obj_clear_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN);
+  lv_label_set_text(ui_LabelOTAProcess, "Starting OTA");
+
+  otaTime = millis();
+  otaBegin = false;
+  pageLoadedFlag = pageLoadedFlag | PAGE_OTAPROGRESS_LOADED;
+}
+
+void onOTAProgressPageUnloaded(lv_event_t * e) {
+  pageLoadedFlag = pageLoadedFlag & ~PAGE_OTAPROGRESS_LOADED;
 }
 
 void onScanPageLoaded(lv_event_t * e) {
-  pageLoadedFlag = pageLoadedFlag | PAGE_WIFISCAN_LOADED;
   resetWifiPageState();
+  pageLoadedFlag = pageLoadedFlag | PAGE_WIFISCAN_LOADED;
 
   lv_roller_set_selected(ui_RollerWifi, 0, LV_ANIM_OFF);
   lv_roller_set_options(ui_RollerWifi, " ", LV_ROLLER_MODE_NORMAL);
@@ -479,116 +570,23 @@ void touctpad_read(lv_indev_drv_t * drv, lv_indev_data_t *data) {
   }
 }
 
-static void lv_tick_task(void) {
+static void lv_tick_task(void* arg) {
   lv_tick_inc(portTICK_RATE_MS);
 }
 
-#ifdef ENABLE_OTA
-void setupWebserver() {
-  if (!MDNS.begin(dnsHost)) { // http://esp32.local
-    Serial.println("Error setting up MDNS responder!");
-  } else {
-    Serial.println("MDNS OK");
-  }
-
-  server.on("/", HTTP_GET, []() {
-    server.sendHeader("Connection", "close");
-    server.send(200, "text/html", "Hello");
-  });
-
-  server.begin();
-}
-
-void setWifiSSIDToRom(String ssid) {
-  Serial.print("Wifi SSID to save: ");
-  String ssid2 = ssid.substring(0, 32);
-  Serial.println(ssid2);
-
-  EEPROM.writeString(0, ssid2);
-  Serial.println("Saved");
-}
-
-String getWifiSSIDFromRom() {
-  return EEPROM.readString(0);
-}
-
-void setWifiPasswordToRom(String pw) {
-  Serial.print("Wifi password to save: ");
-  String pw2 = pw.substring(0, 32);
-  Serial.println(pw2);
-
-  EEPROM.writeString(32, pw2);
-  Serial.println("Saved");
-}
-
-String getWifiPasswordFromRom() {
-  return EEPROM.readString(32);
-  Serial.print("Wifi Password: ");
-  Serial.println();
-}
-
-void printVersion() {
-  Serial.print(WIFINDER_VERSION);
-  Serial.print(" (");
-  Serial.print(WIFINDER_VERSION_FULL);
-  Serial.println(")");
-}
-
-void eatSerialCmd() {
-  if(Serial.available() <= 0) {
-    return;
-  }
-
-  String cmd = Serial.readStringUntil('\n');
-  Serial.print("CMD: ");
-  Serial.println(cmd.c_str());
-  
-  // switch cmd test
-  if(cmd.startsWith("WIFISSID ")) {
-    setWifiSSIDToRom(cmd.substring(9));
-  } else if(cmd.startsWith("WIFIPW ")) {
-    setWifiPasswordToRom(cmd.substring(7));
-  } else if(cmd.equals("WIFISSID")) {
-    Serial.print("Wifi SSID: ");
-    Serial.println(getWifiSSIDFromRom());
-  } else if(cmd.equals("WIFIPW")) {
-    Serial.print("Wifi Password: ? (len: ");
-    Serial.print(getWifiPasswordFromRom().length());
-    Serial.println(")");
-  } else if(cmd.equals("OTANOW")) {
-    Serial.println("RUN OTA NOW");
-  } else if(cmd.equals("VERSION")) {
-    printVersion();
-  } else {
-    Serial.println("Unknown CMD");
-  }
-}
-#endif
-
 void setup() {
-  
-  #ifdef ENABLE_OTA
-  if (!EEPROM.begin(1024)) {
-    Serial.println("Failed to initialise EEPROM");
-  }
-  #endif
-
   pinMode(BUZZER_GPIO, OUTPUT);
   Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
 
   Wire.setPins(PIN_SDA, PIN_SCL);
+
   hasMagSensor = mag.begin();
   mag.setMagGain(HMC5883_MAGGAIN_1_3);
-  
-
-  WiFi.mode(WIFI_STA);
-  #ifdef ENABLE_OTA
-    setupWebserver();
-  #endif
 
   lv_init();
-  // Setup tick hook for lv_tick_task
-  esp_err_t err = esp_register_freertos_tick_hook((esp_freertos_tick_cb_t)lv_tick_task); 
+  ESP_ERROR_CHECK(esp_timer_create(&ticker_timer_args, &ticker_timer));
+  ESP_ERROR_CHECK(esp_timer_start_periodic(ticker_timer, portTICK_RATE_MS * 1000));
 
   // Enable TFT
   tft.begin();
@@ -656,9 +654,13 @@ void loop() {
       updateWifiScanUi();
     }
   }
+  
+  if(pageLoadedFlag & PAGE_OTAPROGRESS_LOADED) {
+    if(!otaBegin && millis() - otaTime > 2000){
+      otaBegin = true;
+      actualOTAAction();
+    }
+  }
 
-  #ifdef ENABLE_OTA
-    eatSerialCmd();
-  #endif
   delay(5);
 }

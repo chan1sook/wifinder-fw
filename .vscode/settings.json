@@ -16,6 +16,8 @@
         "vector": "cpp",
         "string_view": "cpp",
         "initializer_list": "cpp",
-        "ui.h": "c"
+        "ui.h": "c",
+        "memory": "cpp",
+        "optional": "cpp"
     }
 }

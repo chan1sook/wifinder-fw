@@ -1,6 +1,6 @@
 // SquareLine LVGL GENERATED FILE
-// EDITOR VERSION: SquareLine Studio 1.1.0
-// LVGL VERSION: 8.2
+// EDITOR VERSION: SquareLine Studio 1.1.1
+// LVGL VERSION: 8.2.0
 // PROJECT: SquareLine_Project
 
 #include "ui.h"
@@ -72,6 +72,12 @@ lv_obj_t * ui_TextAreaPassword;
 lv_obj_t * ui_LabelWifiSSID;
 lv_obj_t * ui_LabelWifiPassword;
 lv_obj_t * ui_Keyboard2;
+void ui_event_SceneOtaProgress(lv_event_t * e);
+lv_obj_t * ui_SceneOtaProgress;
+lv_obj_t * ui_LabelOTAProcess;
+void ui_event_ImgButtonBackToOTA(lv_event_t * e);
+lv_obj_t * ui_ImgButtonBackToOTA;
+lv_obj_t * ui_LabelBackToOTA;
 
 ///////////////////// TEST LVGL SETTINGS ////////////////////
 #if LV_COLOR_DEPTH != 16
@@ -167,7 +173,7 @@ void ui_event_ImgButtonOTA(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
     lv_obj_t * target = lv_event_get_target(e);
     if(event_code == LV_EVENT_CLICKED) {
-        onStartOTA(e);
+        _ui_screen_change(ui_SceneOtaProgress, LV_SCR_LOAD_ANIM_FADE_ON, 50, 0);
     }
 }
 void ui_event_ImgButtonHomePage3(lv_event_t * e)
@@ -192,6 +198,25 @@ void ui_event_TextAreaPassword(lv_event_t * e)
     lv_obj_t * target = lv_event_get_target(e);
     if(event_code == LV_EVENT_CLICKED) {
         onTextAreaPasswordFocus(e);
+    }
+}
+void ui_event_SceneOtaProgress(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+    lv_obj_t * target = lv_event_get_target(e);
+    if(event_code == LV_EVENT_SCREEN_LOADED) {
+        onOTAProgressPageLoaded(e);
+    }
+    if(event_code == LV_EVENT_SCREEN_UNLOADED) {
+        onOTAProgressPageUnloaded(e);
+    }
+}
+void ui_event_ImgButtonBackToOTA(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+    lv_obj_t * target = lv_event_get_target(e);
+    if(event_code == LV_EVENT_CLICKED) {
+        _ui_screen_change(ui_SceneOta, LV_SCR_LOAD_ANIM_FADE_ON, 50, 0);
     }
 }
 
@@ -757,6 +782,50 @@ void ui_SceneOta_screen_init(void)
     lv_keyboard_set_textarea(ui_Keyboard2, ui_TextAreaSSID);
 
 }
+void ui_SceneOtaProgress_screen_init(void)
+{
+    ui_SceneOtaProgress = lv_obj_create(NULL);
+    lv_obj_clear_flag(ui_SceneOtaProgress, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_set_style_bg_color(ui_SceneOtaProgress, lv_color_hex(0x34276B), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_SceneOtaProgress, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_LabelOTAProcess = lv_label_create(ui_SceneOtaProgress);
+    lv_obj_set_width(ui_LabelOTAProcess, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_LabelOTAProcess, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_LabelOTAProcess, 0);
+    lv_obj_set_y(ui_LabelOTAProcess, -15);
+    lv_obj_set_align(ui_LabelOTAProcess, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_LabelOTAProcess, "Starting OTA");
+    lv_obj_set_style_text_color(ui_LabelOTAProcess, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_LabelOTAProcess, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_LabelOTAProcess, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_ImgButtonBackToOTA = lv_btn_create(ui_SceneOtaProgress);
+    lv_obj_set_width(ui_ImgButtonBackToOTA, 80);
+    lv_obj_set_height(ui_ImgButtonBackToOTA, 36);
+    lv_obj_set_x(ui_ImgButtonBackToOTA, 0);
+    lv_obj_set_y(ui_ImgButtonBackToOTA, 50);
+    lv_obj_set_align(ui_ImgButtonBackToOTA, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
+    lv_obj_clear_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_set_style_radius(ui_ImgButtonBackToOTA, 20, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_ImgButtonBackToOTA, lv_color_hex(0x34276B), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_ImgButtonBackToOTA, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_color(ui_ImgButtonBackToOTA, lv_color_hex(0x3E69B0), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_dir(ui_ImgButtonBackToOTA, LV_GRAD_DIR_HOR, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_LabelBackToOTA = lv_label_create(ui_ImgButtonBackToOTA);
+    lv_obj_set_width(ui_LabelBackToOTA, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_LabelBackToOTA, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_align(ui_LabelBackToOTA, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_LabelBackToOTA, "Back");
+    lv_obj_set_style_text_color(ui_LabelBackToOTA, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_LabelBackToOTA, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_add_event_cb(ui_ImgButtonBackToOTA, ui_event_ImgButtonBackToOTA, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_SceneOtaProgress, ui_event_SceneOtaProgress, LV_EVENT_ALL, NULL);
+
+}
 
 void ui_init(void)
 {
@@ -768,5 +837,6 @@ void ui_init(void)
     ui_SceneInfo_screen_init();
     ui_SceneScan_screen_init();
     ui_SceneOta_screen_init();
+    ui_SceneOtaProgress_screen_init();
     lv_disp_load_scr(ui_SceneHome);
 }

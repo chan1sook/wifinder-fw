@@ -58,3 +58,19 @@ def onTextAreaSSIDUnfocus(event_struct):
 def onTextAreaPasswordFocus(event_struct):
     return
 
+
+def onOTAPageLoaded(event_struct):
+    return
+
+
+def onOTAPageUnloaded(event_struct):
+    return
+
+
+def onOTAProgressPageUnloaded(event_struct):
+    return
+
+
+def onOTAProgressPageLoaded(event_struct):
+    return
+

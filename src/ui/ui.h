@@ -1,6 +1,6 @@
 // SquareLine LVGL GENERATED FILE
-// EDITOR VERSION: SquareLine Studio 1.1.0
-// LVGL VERSION: 8.2
+// EDITOR VERSION: SquareLine Studio 1.1.1
+// LVGL VERSION: 8.2.0
 // PROJECT: SquareLine_Project
 
 #ifndef _SQUARELINE_PROJECT_UI_H
@@ -87,6 +87,12 @@ extern lv_obj_t * ui_TextAreaPassword;
 extern lv_obj_t * ui_LabelWifiSSID;
 extern lv_obj_t * ui_LabelWifiPassword;
 extern lv_obj_t * ui_Keyboard2;
+void ui_event_SceneOtaProgress(lv_event_t * e);
+extern lv_obj_t * ui_SceneOtaProgress;
+extern lv_obj_t * ui_LabelOTAProcess;
+void ui_event_ImgButtonBackToOTA(lv_event_t * e);
+extern lv_obj_t * ui_ImgButtonBackToOTA;
+extern lv_obj_t * ui_LabelBackToOTA;
 
 void onHomePageLoad(lv_event_t * e);
 void onHomePageUnload(lv_event_t * e);
@@ -95,9 +101,10 @@ void onScanPageLoaded(lv_event_t * e);
 void onScanPageUnloaded(lv_event_t * e);
 void toScanAction(lv_event_t * e);
 void toSelectWifiAction(lv_event_t * e);
-void onStartOTA(lv_event_t * e);
 void onTextAreaSSIDFocus(lv_event_t * e);
 void onTextAreaPasswordFocus(lv_event_t * e);
+void onOTAProgressPageLoaded(lv_event_t * e);
+void onOTAProgressPageUnloaded(lv_event_t * e);
 
 LV_IMG_DECLARE(ui_img_wifinderlogo_png);    // assets\WiFinderLogo.png
 LV_IMG_DECLARE(ui_img_sponserlogo1_c_png);    // assets\sponserLogo1_c.png

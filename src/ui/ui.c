@@ -57,6 +57,7 @@ lv_obj_t * ui_ImageGaugeArm;
 lv_obj_t * ui_PanelCompass;
 lv_obj_t * ui_LabelCompass1;
 lv_obj_t * ui_LabelCompassValue;
+lv_obj_t * ui_ImageWifi;
 lv_obj_t * ui_SceneOta;
 void ui_event_ImgButtonOTA(lv_event_t * e);
 lv_obj_t * ui_ImgButtonOTA;
@@ -569,7 +570,7 @@ void ui_SceneScan_screen_init(void)
     lv_obj_set_style_radius(ui_ImgButtonSelect, 20, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(ui_ImgButtonSelect, lv_color_hex(0x34276B), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ui_ImgButtonSelect, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_grad_color(ui_ImgButtonSelect, lv_color_hex(0x3E69B0), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_color(ui_ImgButtonSelect, lv_color_hex(0x2095F6), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_grad_dir(ui_ImgButtonSelect, LV_GRAD_DIR_HOR, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_LabelImgButtonSelect = lv_label_create(ui_ImgButtonSelect);
@@ -651,6 +652,16 @@ void ui_SceneScan_screen_init(void)
     lv_label_set_text(ui_LabelCompassValue, "-");
     lv_obj_set_style_text_color(ui_LabelCompassValue, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_LabelCompassValue, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_ImageWifi = lv_img_create(ui_SceneScan);
+    lv_img_set_src(ui_ImageWifi, &ui_img_498619720);
+    lv_obj_set_width(ui_ImageWifi, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_ImageWifi, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_ImageWifi, -123);
+    lv_obj_set_y(ui_ImageWifi, 135);
+    lv_obj_set_align(ui_ImageWifi, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_ImageWifi, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
+    lv_obj_clear_flag(ui_ImageWifi, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
     lv_obj_add_event_cb(ui_ImgButtonHomePage2, ui_event_ImgButtonHomePage2, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_ImgButtonScan, ui_event_ImgButtonScan, LV_EVENT_ALL, NULL);

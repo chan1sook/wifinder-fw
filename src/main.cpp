@@ -1,5 +1,7 @@
-#define WIFINDER_VERSION 3
-#define WIFINDER_VERSION_FULL "1.1.0"
+#define WIFINDER_VERSION 4
+const char* wifinderVersionStr = "1.1.1";
+
+// #define NEW_CLOUD_SOURCE
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -49,6 +51,7 @@ uint8_t otaClickCount = 0;
 #define MAX_RSSI_TIMEOUT 5
 
 uint8_t wifiScaningFlag = 0b000;
+bool wifiIconDisplay = false;
 int wifiOptionLength = WIFI_SCAN_RUNNING;
 String wifiOptions[LABEL_LIST_LENGTH];
 String wifiScanSelectedSSID;
@@ -58,10 +61,12 @@ int wifiRssiValue, animatedWifiRssiValue;
 int compassDegValue = -1, animatedCompassDegValue = -1;
 
 #define WIFI_UI_UPDATE_RATE 50
+#define WIFI_BLINK_RATE 250
 #define COMPASS_UPDATE_RATE 2500
 #define BUZZER_UPDATE_DURATION 100
 
 unsigned long wifiUiUpdateTime = 0;
+unsigned long wifiIconBlinkTime = 0;
 unsigned long compassTime = 0;
 unsigned long buzzerUpdateRate = 5000;
 unsigned long buzzerTime = 0;
@@ -70,7 +75,11 @@ unsigned long otaTime = 0;
 #define BUZZER_GPIO 33
 bool buzzerAlarm = false;
 
-const char* fwVersionUri = "http://ota.sensesiot.net:10006/fwversion";
+#ifdef NEW_CLOUD_SOURCE
+const char* otaBaseUri = "https://us-central1-logisensesdns.cloudfunctions.net/wifinder";
+#else
+const char* otaBaseUri = "http://ota.sensesiot.net:10006/";
+#endif
 const char* fwOTAUri = "http://ota.sensesiot.net:10006/getfw";
 bool otaBegin = false;
 
@@ -159,6 +168,7 @@ void scanWifiForOptions() {
   if(!(wifiScaningFlag & WIFI_SCANNING_LIST)) {
     wifiOptionLength = WiFi.scanNetworks(true);
     wifiScaningFlag = wifiScaningFlag | WIFI_SCANNING_LIST;
+    wifiIconBlinkTime = millis();
   }
   
   wifiOptionLength = WiFi.scanComplete();
@@ -178,6 +188,7 @@ void resetWifiPageState() {
   // Serial.println("Reset State Trigger");
   wifiRssiValue = animatedWifiRssiValue = -100;
   wifiScaningFlag = 0b0000;
+  wifiIconDisplay = false;
   wifiOptionLength = WIFI_SCAN_RUNNING;
   compassTime = 0;
   buzzerUpdateRate = 5000;
@@ -365,6 +376,13 @@ void updateWifiScanUi() {
   } else {
     lv_label_set_text(ui_LabelCompassValue, "-");
   }
+
+  // WifIcon
+  if(wifiIconDisplay) {
+    lv_obj_clear_flag(ui_ImageWifi, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(ui_ImageWifi, LV_OBJ_FLAG_HIDDEN);
+  }
 }
 
 void onHomePageLoad(lv_event_t * e) {
@@ -431,7 +449,7 @@ void actualOTAAction() {
   HTTPClient http;
   
   // Your Domain name with URL path or IP address with path
-  http.begin(fwVersionUri);
+  http.begin(otaBaseUri + String("/fwversion"));
       
   // Send HTTP GET request
   int httpResponseCode = http.GET();
@@ -534,6 +552,7 @@ void toSelectWifiAction(lv_event_t * e) {
     wifiScaningFlag = wifiScaningFlag | WIFI_SCAN_SELECTED;
     wifiScaningFlag = wifiScaningFlag & ~WIFI_SCANNING_RSSI;
     rssiTimeout = MAX_RSSI_TIMEOUT;
+    wifiIconBlinkTime = millis();
   } else {
     wifiScaningFlag = wifiScaningFlag & ~WIFI_SCAN_SELECTED;
   }
@@ -619,7 +638,7 @@ void setup() {
   lv_indev_drv_register(&indev_drv);
 
   ui_init();
-  lv_label_set_text(ui_LabelVersion, WIFINDER_VERSION_FULL);
+  lv_label_set_text(ui_LabelVersion, wifinderVersionStr);
 }
 
 void loop() {
@@ -648,6 +667,16 @@ void loop() {
       }
 
       adjustBuzzerRate();
+    }
+
+    
+    if(wifiScaningFlag & WIFI_SCANNING_LIST || wifiScaningFlag & WIFI_SCAN_SELECTED) {
+      if(millis() - wifiIconBlinkTime > WIFI_BLINK_RATE){
+        wifiIconBlinkTime = millis();
+        wifiIconDisplay = !wifiIconDisplay;
+      }
+    } else {
+      wifiIconDisplay = false;
     }
 
     if(millis() - wifiUiUpdateTime > WIFI_UI_UPDATE_RATE){

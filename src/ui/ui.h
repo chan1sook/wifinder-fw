@@ -72,6 +72,7 @@ extern lv_obj_t * ui_ImageGaugeArm;
 extern lv_obj_t * ui_PanelCompass;
 extern lv_obj_t * ui_LabelCompass1;
 extern lv_obj_t * ui_LabelCompassValue;
+extern lv_obj_t * ui_ImageWifi;
 extern lv_obj_t * ui_SceneOta;
 void ui_event_ImgButtonOTA(lv_event_t * e);
 extern lv_obj_t * ui_ImgButtonOTA;
@@ -124,6 +125,7 @@ LV_IMG_DECLARE(ui_img_textinfo7_c_png);    // assets\textInfo7_c.png
 LV_IMG_DECLARE(ui_img_textinfo8_c_png);    // assets\textInfo8_c.png
 LV_IMG_DECLARE(ui_img_textinfo9_c_png);    // assets\textInfo9_c.png
 LV_IMG_DECLARE(ui_img_gaugearm_png);    // assets\gaugeArm.png
+LV_IMG_DECLARE(ui_img_498619720);    // assets\wifi-logo-13682.png
 
 
 

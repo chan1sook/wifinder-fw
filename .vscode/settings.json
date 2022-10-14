@@ -18,6 +18,8 @@
         "initializer_list": "cpp",
         "ui.h": "c",
         "memory": "cpp",
-        "optional": "cpp"
+        "optional": "cpp",
+        "*.tcc": "cpp",
+        "cstdlib": "cpp"
     }
 }

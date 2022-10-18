@@ -1,4 +1,4 @@
-// Copy to .pio\libdeps\mhetesp32minikit\lvgl before compile
+// copy to .pio/libdeps/lvgl
 
 /**
  * @file lv_conf.h
@@ -14,7 +14,8 @@
  */
 
 /* clang-format off */
-#if 1 /*Set it to "1" to enable content*/
+#ifndef WIFINDER_LV_CONF_h
+#define WIFINDER_LV_CONF_h
 
 #ifndef LV_CONF_H
 #define LV_CONF_H

@@ -1,5 +1,5 @@
-#define WIFINDER_VERSION 5
-const char *wifinderVersionStr = "1.2.0";
+#define WIFINDER_VERSION (6UL)
+const char *wifinderVersionStr = "1.3.0";
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -15,6 +15,7 @@ const char *wifinderVersionStr = "1.2.0";
 #include "FT62XXTouchScreen.h"
 
 #include <WiFi.h>
+#include <EEPROM.h>
 
 TFT_eSPI tft = TFT_eSPI();
 FT62XXTouchScreen touchScreen = FT62XXTouchScreen(TFT_WIDTH, PIN_SDA, PIN_SCL);
@@ -58,8 +59,20 @@ uint8_t rssiTimeout = MAX_RSSI_TIMEOUT;
 int wifiRssiValue, animatedWifiRssiValue;
 int compassDegValue = -1, animatedCompassDegValue = -1;
 
+// EEPROM format 8|4|8 = 24 bytes
+
+// 0-7: Header valid if = LOG_EEPROM_HEADER
+// 8-11: version valid if match WIFINDER_VERSION
+// 12-23: minutes usage
+
+#define LOG_EEPROM_HEADER (0b1001111001101011010010001011001110100001101011010111110011000111ULL)
+#define LOG_EEPROM_HEADER_ADDR (0U)
+#define LOG_EEPROM_VERSION_ADDR (8U)
+#define LOG_EEPROM_MINUTES_ADDR (12U)
+
 #define WIFI_UI_UPDATE_RATE 50
 #define WIFI_BLINK_RATE 250
+#define LOG_USAGE_UPDATE_RATE 60000
 #define COMPASS_UPDATE_RATE 2500
 #define BUZZER_UPDATE_DURATION 100
 
@@ -68,14 +81,17 @@ unsigned long wifiIconBlinkTime = 0;
 unsigned long compassTime = 0;
 unsigned long buzzerUpdateRate = 5000;
 unsigned long buzzerTime = 0;
-unsigned long otaTime = 0;
+unsigned long logRecordTime = 0;
+unsigned long otaFadeTime = 0;
 
 #define BUZZER_GPIO 33
 bool buzzerAlarm = false;
 
 const char *fwVersionUri = "http://ota.sensesiot.net:10006/fwversion";
+const char *telemetryUri = "http://ota.sensesiot.net:10006/telemetry";
 const char *otaBinUri = "http://ota.sensesiot.net:10006/getfw";
 bool otaBegin = false;
+bool hasEeprom = false;
 
 static void lv_tick_task(void *arg);
 
@@ -98,9 +114,9 @@ void updateScanUiOptions()
     {
       if (i > 0)
       {
-        options += "\n";
+        options.concat('\n');
       }
-      options += wifiOptions[i];
+      options.concat(wifiOptions[i]);
     }
 
     // Serial.println(options);
@@ -208,6 +224,7 @@ void resetWifiPageState()
   buzzerUpdateRate = 5000;
   buzzerTime = 0;
   buzzerAlarm = false;
+  logRecordTime = millis();
 }
 
 void updateCompass()
@@ -541,9 +558,38 @@ void actualOTAAction()
   }
 
   Serial.println("Connected");
-  lv_label_set_text(ui_LabelOTAProcess, "Get Firmware Info from Server");
-
   HTTPClient http;
+
+  if (hasEeprom)
+  {
+    // lv_label_set_text(ui_LabelOTAProcess, "Send Telemetry");
+
+    String params = String("mac=");
+    String mac = WiFi.macAddress();
+    mac.replace(":", "");
+    params.concat(mac);
+    params.concat("&ver=");
+    params.concat(String(WIFINDER_VERSION));
+    params.concat("&m=");
+
+    uint64_t minutes = 0;
+    uint64_t header = EEPROM.readULong64(LOG_EEPROM_HEADER_ADDR);
+    uint32_t version = EEPROM.readULong(LOG_EEPROM_VERSION_ADDR);
+
+    if (header == LOG_EEPROM_HEADER && version == WIFINDER_VERSION)
+    {
+      minutes = EEPROM.readULong64(LOG_EEPROM_MINUTES_ADDR);
+    }
+
+    params.concat(String(minutes));
+    http.begin(telemetryUri);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    Serial.print("Tel HTTP Response code: ");
+    Serial.println(http.POST(params));
+    http.end();
+  }
+
+  lv_label_set_text(ui_LabelOTAProcess, "Get Firmware Info from Server");
   http.begin(fwVersionUri);
 
   // Send HTTP GET request
@@ -607,7 +653,7 @@ void onOTAProgressPageLoaded(lv_event_t *e)
   lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN);
   lv_label_set_text(ui_LabelOTAProcess, "Starting OTA");
 
-  otaTime = millis();
+  otaFadeTime = millis();
   otaBegin = false;
   pageLoadedFlag = pageLoadedFlag | PAGE_OTAPROGRESS_LOADED;
 }
@@ -702,6 +748,41 @@ void touctpad_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
   }
 }
 
+void recordUsageLog()
+{
+  uint64_t logKey = EEPROM.readULong64(LOG_EEPROM_HEADER_ADDR);
+  uint32_t version = EEPROM.readUInt(LOG_EEPROM_VERSION_ADDR);
+
+  if (logKey != LOG_EEPROM_HEADER || version != WIFINDER_VERSION)
+  {
+    // format and save time start 0
+    Serial.println("Init EEPROM Format");
+    EEPROM.writeULong64(LOG_EEPROM_HEADER_ADDR, LOG_EEPROM_HEADER);
+    EEPROM.writeULong(LOG_EEPROM_VERSION_ADDR, WIFINDER_VERSION);
+    EEPROM.writeULong64(LOG_EEPROM_MINUTES_ADDR, 1);
+  }
+  else
+  {
+    uint64_t minutes = EEPROM.readULong64(LOG_EEPROM_MINUTES_ADDR);
+    if (minutes < ULONG_MAX)
+    {
+      EEPROM.writeULong64(LOG_EEPROM_MINUTES_ADDR, minutes + 1);
+    }
+  }
+
+  Serial.print("Minutes: ");
+  Serial.println(EEPROM.readULong64(LOG_EEPROM_MINUTES_ADDR));
+
+  if (EEPROM.commit())
+  {
+    Serial.println("EEPROM Saved");
+  }
+  else
+  {
+    Serial.println("Can't Save EEPROM");
+  }
+}
+
 static void lv_tick_task(void *arg)
 {
   lv_tick_inc(portTICK_RATE_MS);
@@ -711,6 +792,13 @@ void setup()
 {
   pinMode(BUZZER_GPIO, OUTPUT);
   Serial.begin(115200);
+
+  hasEeprom = EEPROM.begin(20);
+  if (!hasEeprom)
+  {
+    Serial.println("Can't Init EEPROM");
+  }
+
   WiFi.mode(WIFI_STA);
 
   Wire.setPins(PIN_SDA, PIN_SCL);
@@ -762,6 +850,12 @@ void loop()
 
   if (pageLoadedFlag & PAGE_WIFISCAN_LOADED)
   {
+    if (hasEeprom && millis() - logRecordTime > LOG_USAGE_UPDATE_RATE)
+    {
+      logRecordTime = millis();
+      recordUsageLog();
+    }
+
     if (millis() - compassTime > COMPASS_UPDATE_RATE)
     {
       compassTime = millis();
@@ -814,7 +908,7 @@ void loop()
 
   if (pageLoadedFlag & PAGE_OTAPROGRESS_LOADED)
   {
-    if (!otaBegin && millis() - otaTime > 2000)
+    if (!otaBegin && millis() - otaFadeTime > 2000)
     {
       otaBegin = true;
       actualOTAAction();

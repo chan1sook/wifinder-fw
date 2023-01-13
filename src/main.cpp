@@ -1,5 +1,5 @@
-#define WIFINDER_VERSION (7UL)
-const char *wifinderVersionStr = "1.4.0";
+#define WIFINDER_VERSION (8UL)
+const char *wifinderVersionStr = "1.4.1";
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -95,13 +95,18 @@ bool hasEeprom = false;
 EventGroupHandle_t systemEventGroup = xEventGroupCreate();
 
 static void lv_tick_task(void *arg);
+static void ui_update_task(void *arg);
 
 esp_timer_handle_t ticker_timer;
+esp_timer_handle_t update_timer;
 const esp_timer_create_args_t ticker_timer_args = {
     .callback = &lv_tick_task,
     .name = "lv_tick_task"};
+const esp_timer_create_args_t ticker_update_args = {
+    .callback = &ui_update_task,
+    .name = "update_timer"};
 
-void updateScanUiOptions()
+static void updateScanUiOptions()
 {
   if (!(pageLoadedFlag & PAGE_WIFISCAN_LOADED))
   {
@@ -137,12 +142,12 @@ void updateScanUiOptions()
   }
 }
 
-bool isWifinderSSID(String ssid)
+static bool isWifinderSSID(String ssid)
 {
   return ssid.startsWith("WiFinder");
 }
 
-void sortWifiOptions()
+static void sortWifiOptions()
 {
   int wifiSortedIndex[LABEL_LIST_LENGTH] = {-1, -1, -1, -1, -1};
 
@@ -190,7 +195,7 @@ void sortWifiOptions()
   }
 }
 
-void scanWifiForOptions()
+static void scanWifiForOptions()
 {
   if (!(wifiScaningFlag & WIFI_SCANNING_LIST))
   {
@@ -203,6 +208,9 @@ void scanWifiForOptions()
 
   if (wifiOptionLength != WIFI_SCAN_RUNNING)
   {
+    Serial.print("Scan Result: ");
+    Serial.println(wifiOptionLength);
+
     wifiScaningFlag = wifiScaningFlag & ~WIFI_SCANNING_LIST;
 
     if (wifiOptionLength > 0)
@@ -214,7 +222,7 @@ void scanWifiForOptions()
   }
 }
 
-void resetWifiPageState()
+static void resetWifiPageState()
 {
   // Serial.println("Reset State Trigger");
   wifiRssiValue = animatedWifiRssiValue = -100;
@@ -228,7 +236,7 @@ void resetWifiPageState()
   logRecordTime = millis();
 }
 
-void updateCompass()
+static void updateCompass()
 {
   compass.read();
 
@@ -250,13 +258,13 @@ void updateCompass()
   // Serial.println(compassDegValue);
 }
 
-void stopBuzzer()
+static void stopBuzzer()
 {
   digitalWrite(BUZZER_GPIO, LOW);
   buzzerAlarm = false;
 }
 
-void alarmBuzzer()
+static void alarmBuzzer()
 {
   if (!(wifiScaningFlag & WIFI_SCAN_SELECTED))
   {
@@ -267,7 +275,7 @@ void alarmBuzzer()
   buzzerAlarm = true;
 }
 
-void adjustBuzzerRate()
+static void adjustBuzzerRate()
 {
   // Rate computed by rssi value
   if (wifiRssiValue >= -60)
@@ -292,7 +300,7 @@ void adjustBuzzerRate()
   }
 }
 
-void updateRssi()
+static void updateRssi()
 {
   int scanResult = WIFI_SCAN_RUNNING;
 
@@ -336,9 +344,9 @@ void updateRssi()
   }
 }
 
-void updateWifiScanUi()
+static void updateWifiScanUi()
 {
-  if (!(pageLoadedFlag & PAGE_WIFISCAN_LOADED))
+  if (!(pageLoadedFlag & PAGE_WIFISCAN_LOADED) || !ui_SceneScan)
   {
     return;
   }
@@ -521,10 +529,8 @@ void onTextAreaPasswordFocus(lv_event_t *e)
   lv_keyboard_set_textarea(ui_Keyboard2, ui_TextAreaPassword);
 }
 
-void actualOTAAction()
+static void actualOTAAction()
 {
-  xEventGroupSetBits(systemEventGroup, 0x01);
-
   const char *ssid = lv_textarea_get_text(ui_TextAreaSSID);
   const char *pw = lv_textarea_get_text(ui_TextAreaPassword);
 
@@ -658,7 +664,8 @@ void onOTAProgressPageLoaded(lv_event_t *e)
 
 void onOTAProgressPageUnloaded(lv_event_t *e)
 {
-  pageLoadedFlag = pageLoadedFlag & ~PAGE_OTAPROGRESS_LOADED;
+  ESP.restart();
+  // pageLoadedFlag = pageLoadedFlag & ~PAGE_OTAPROGRESS_LOADED;
 }
 
 void onScanPageLoaded(lv_event_t *e)
@@ -718,7 +725,7 @@ void toSelectWifiAction(lv_event_t *e)
   updateWifiScanUi();
 }
 
-void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p)
+static void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p)
 {
   uint32_t w = (area->x2 - area->x1 + 1);
   uint32_t h = (area->y2 - area->y1 + 1);
@@ -731,7 +738,7 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
   lv_disp_flush_ready(disp);
 }
 
-void touchpad_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
+static void touchpad_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
 {
   TouchPoint touchPos = touchScreen.read();
   if (touchPos.touched)
@@ -746,7 +753,7 @@ void touchpad_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
   }
 }
 
-void recordUsageLog()
+static void recordUsageLog()
 {
   uint64_t logKey = EEPROM.readULong64(LOG_EEPROM_HEADER_ADDR);
   uint32_t version = EEPROM.readUInt(LOG_EEPROM_VERSION_ADDR);
@@ -784,6 +791,11 @@ void recordUsageLog()
 static void lv_tick_task(void *arg)
 {
   lv_tick_inc(portTICK_RATE_MS);
+}
+
+static void ui_update_task(void *arg)
+{
+  lv_task_handler();
 }
 
 void setup()
@@ -837,19 +849,9 @@ void setup()
   lv_indev_drv_register(&indev_drv);
 
   ui_init();
-  lv_label_set_text(ui_LabelVersion, wifinderVersionStr);
 
-  xTaskCreate([](void *params)
-              {
-                while (1)
-                {
-                  EventBits_t uxBits = xEventGroupWaitBits(systemEventGroup, 0x01, pdTRUE, pdFALSE, portMAX_DELAY);
-                  if ((uxBits & 0x01) != 0)
-                  {
-                    Serial.println("Okey");
-                  }
-                } },
-              "commontask", 4 * 1024, NULL, 20, NULL);
+  ESP_ERROR_CHECK(esp_timer_create(&ticker_update_args, &update_timer));
+  ESP_ERROR_CHECK(esp_timer_start_periodic(update_timer, 50 * portTICK_RATE_MS * 1000));
 }
 
 void loop()
@@ -921,6 +923,5 @@ void loop()
     }
   }
 
-  lv_task_handler();
   delay(5);
 }

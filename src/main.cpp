@@ -1,5 +1,5 @@
-#define WIFINDER_VERSION (6UL)
-const char *wifinderVersionStr = "1.3.0";
+#define WIFINDER_VERSION (7UL)
+const char *wifinderVersionStr = "1.4.0";
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -7,12 +7,11 @@ const char *wifinderVersionStr = "1.3.0";
 
 #include <ESP32httpUpdate.h>
 
-#include <Adafruit_Sensor.h>
-#include <Adafruit_HMC5883_U.h>
-
 #include <SPI.h>
 #include <TFT_eSPI.h>
 #include "FT62XXTouchScreen.h"
+
+#include <QMC5883LCompass.h>
 
 #include <WiFi.h>
 #include <EEPROM.h>
@@ -24,8 +23,7 @@ FT62XXTouchScreen touchScreen = FT62XXTouchScreen(TFT_WIDTH, PIN_SDA, PIN_SCL);
 // Mine is: -0* 50' W, which is ~5/6 Degrees, or (which we need) 0.01454 radians
 #define DECLINATION_ANGLE 0.01454
 
-Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified();
-bool hasMagSensor = false;
+QMC5883LCompass compass;
 
 #include "esp_freertos_hooks.h"
 #include "ui/ui.h"
@@ -58,6 +56,7 @@ String wifiScanSelectedSSID;
 uint8_t rssiTimeout = MAX_RSSI_TIMEOUT;
 int wifiRssiValue, animatedWifiRssiValue;
 int compassDegValue = -1, animatedCompassDegValue = -1;
+String compassDir = "?";
 
 // EEPROM format 8|4|8 = 24 bytes
 
@@ -92,6 +91,8 @@ const char *telemetryUri = "http://ota.sensesiot.net:10006/telemetry";
 const char *otaBinUri = "http://ota.sensesiot.net:10006/getfw";
 bool otaBegin = false;
 bool hasEeprom = false;
+
+EventGroupHandle_t systemEventGroup = xEventGroupCreate();
 
 static void lv_tick_task(void *arg);
 
@@ -229,32 +230,41 @@ void resetWifiPageState()
 
 void updateCompass()
 {
-  if (!hasMagSensor)
-  {
-    return;
-  }
+  compass.read();
 
-  sensors_event_t event;
-  mag.getEvent(&event);
+  // Return Azimuth reading
+  compassDegValue = compass.getAzimuth();
+  char dirArr[3];
+  compass.getDirection(dirArr, compassDegValue);
+  compassDir = String(dirArr).substring(1);
+  compassDir.trim();
 
-  float heading = atan2(event.magnetic.y, event.magnetic.x);
-  heading += DECLINATION_ANGLE;
+  int x, y, z, b;
+  x = compass.getX();
+  y = compass.getY();
+  z = compass.getZ();
 
-  if (heading < 0)
-  {
-    heading += 2 * PI;
-  }
-  else if (heading > 2 * PI)
-  {
-    heading -= 2 * PI;
-  }
+  b = compass.getBearing(compassDegValue);
 
-  // Convert radians to degrees for readability.
-  float headingDegrees = heading * 180 / PI;
-  compassDegValue = (int)headingDegrees;
+  Serial.print("X: ");
+  Serial.print(x);
 
-  // Serial.print("Heading: ");
-  // Serial.println(compassDegValue);
+  Serial.print(" Y: ");
+  Serial.print(y);
+
+  Serial.print(" Z: ");
+  Serial.print(z);
+
+  Serial.print(" Bearing: ");
+  Serial.print(b);
+
+  Serial.print(" Direction: ");
+  Serial.print(compassDir);
+
+  Serial.println();
+
+  Serial.print("Heading: ");
+  Serial.println(compassDegValue);
 }
 
 void stopBuzzer()
@@ -470,6 +480,8 @@ void updateWifiScanUi()
   if (compassDegValue >= 0)
   {
     lv_label_set_text(ui_LabelCompassValue, String(animatedCompassDegValue).c_str());
+
+    lv_label_set_text(ui_LabelCompass1, compassDir.c_str());
   }
   else
   {
@@ -509,9 +521,10 @@ void triggerSecretOTA(lv_event_t *e)
   otaClickCount += 1;
   if (otaClickCount >= 5)
   {
-    lv_scr_load_anim(ui_SceneOta, LV_SCR_LOAD_ANIM_FADE_ON, 50, 0, false);
+    prepareScreen(OTA_SCREEN);
     lv_textarea_set_text(ui_TextAreaSSID, "");
     lv_textarea_set_text(ui_TextAreaPassword, "");
+    swapScreenTo(OTA_SCREEN);
   }
 }
 
@@ -527,6 +540,8 @@ void onTextAreaPasswordFocus(lv_event_t *e)
 
 void actualOTAAction()
 {
+  xEventGroupSetBits(systemEventGroup, 0x01);
+
   const char *ssid = lv_textarea_get_text(ui_TextAreaSSID);
   const char *pw = lv_textarea_get_text(ui_TextAreaPassword);
 
@@ -733,7 +748,7 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
   lv_disp_flush_ready(disp);
 }
 
-void touctpad_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
+void touchpad_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
 {
   TouchPoint touchPos = touchScreen.read();
   if (touchPos.touched)
@@ -800,11 +815,9 @@ void setup()
   }
 
   WiFi.mode(WIFI_STA);
-
   Wire.setPins(PIN_SDA, PIN_SCL);
 
-  hasMagSensor = mag.begin();
-  mag.setMagGain(HMC5883_MAGGAIN_1_3);
+  compass.init();
 
   lv_init();
   ESP_ERROR_CHECK(esp_timer_create(&ticker_timer_args, &ticker_timer));
@@ -837,17 +850,27 @@ void setup()
   static lv_indev_drv_t indev_drv;
   lv_indev_drv_init(&indev_drv);
   indev_drv.type = LV_INDEV_TYPE_POINTER;
-  indev_drv.read_cb = touctpad_read;
+  indev_drv.read_cb = touchpad_read;
   lv_indev_drv_register(&indev_drv);
 
   ui_init();
   lv_label_set_text(ui_LabelVersion, wifinderVersionStr);
+
+  xTaskCreate([](void *params)
+              {
+                while (1)
+                {
+                  EventBits_t uxBits = xEventGroupWaitBits(systemEventGroup, 0x01, pdTRUE, pdFALSE, portMAX_DELAY);
+                  if ((uxBits & 0x01) != 0)
+                  {
+                    Serial.println("Okey");
+                  }
+                } },
+              "commontask", 4 * 1024, NULL, 20, NULL);
 }
 
 void loop()
 {
-  lv_task_handler();
-
   if (pageLoadedFlag & PAGE_WIFISCAN_LOADED)
   {
     if (hasEeprom && millis() - logRecordTime > LOG_USAGE_UPDATE_RATE)
@@ -915,5 +938,6 @@ void loop()
     }
   }
 
+  lv_task_handler();
   delay(5);
 }

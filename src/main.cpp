@@ -108,7 +108,7 @@ const esp_timer_create_args_t ticker_update_args = {
 
 static void updateScanUiOptions()
 {
-  if (!(pageLoadedFlag & PAGE_WIFISCAN_LOADED))
+  if (!(pageLoadedFlag & PAGE_WIFISCAN_LOADED) || !ui_SceneScan)
   {
     return;
   }

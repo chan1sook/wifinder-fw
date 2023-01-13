@@ -246,25 +246,8 @@ void updateCompass()
 
   b = compass.getBearing(compassDegValue);
 
-  Serial.print("X: ");
-  Serial.print(x);
-
-  Serial.print(" Y: ");
-  Serial.print(y);
-
-  Serial.print(" Z: ");
-  Serial.print(z);
-
-  Serial.print(" Bearing: ");
-  Serial.print(b);
-
-  Serial.print(" Direction: ");
-  Serial.print(compassDir);
-
-  Serial.println();
-
-  Serial.print("Heading: ");
-  Serial.println(compassDegValue);
+  // Serial.print("Heading: ");
+  // Serial.println(compassDegValue);
 }
 
 void stopBuzzer()

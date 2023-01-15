@@ -1,5 +1,5 @@
-#define WIFINDER_VERSION (8UL)
-const char *wifinderVersionStr = "1.4.1";
+#define WIFINDER_VERSION (9UL)
+const char *wifinderVersionStr = "1.4.2";
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -34,20 +34,21 @@ static const uint16_t screenHeight = 320;
 static lv_disp_draw_buf_t disp_buf;
 static lv_color_t buf[screenWidth * 10];
 
-#define PAGE_HOME_LOADED 0b1
-#define PAGE_WIFISCAN_LOADED 0b10
-#define PAGE_OTAPROGRESS_LOADED 0b100
-
-uint8_t pageLoadedFlag = 0b000;
 uint8_t otaClickCount = 0;
 
 #define LABEL_LIST_LENGTH 5
-#define WIFI_SCANNING_LIST 0b1
-#define WIFI_SCAN_SELECTED 0b10
-#define WIFI_SCANNING_RSSI 0b100
 #define MAX_RSSI_TIMEOUT 5
 
-uint8_t wifiScaningFlag = 0b000;
+typedef enum
+{
+  WIFINDER_SCAN_IDLE,
+  WIFINDER_SCANNING,
+  WIFINDER_TRACKING_SCAN,
+  WIFINDER_TRACKING,
+} wifinder_scan_status;
+
+wifinder_scan_status wifinderScanStatus = WIFINDER_SCAN_IDLE;
+
 bool wifiIconDisplay = false;
 int wifiOptionLength = WIFI_SCAN_RUNNING;
 String wifiOptions[LABEL_LIST_LENGTH];
@@ -72,8 +73,8 @@ String compassDir = "?";
 #define WIFI_UI_UPDATE_RATE 50
 #define WIFI_BLINK_RATE 250
 #define LOG_USAGE_UPDATE_RATE 60000
-#define COMPASS_UPDATE_RATE 2500
-#define BUZZER_UPDATE_DURATION 100
+#define COMPASS_UPDATE_RATE 500
+#define BUZZER_DURATION 100
 
 unsigned long wifiUiUpdateTime = 0;
 unsigned long wifiIconBlinkTime = 0;
@@ -92,7 +93,8 @@ const char *otaBinUri = "http://ota.sensesiot.net:10006/getfw";
 bool otaBegin = false;
 bool hasEeprom = false;
 
-EventGroupHandle_t systemEventGroup = xEventGroupCreate();
+static void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p);
+static void touchpad_read(lv_indev_drv_t *drv, lv_indev_data_t *data);
 
 static void lv_tick_task(void *arg);
 static void ui_update_task(void *arg);
@@ -106,13 +108,281 @@ const esp_timer_create_args_t ticker_update_args = {
     .callback = &ui_update_task,
     .name = "update_timer"};
 
-static void updateScanUiOptions()
+static void updateScanUiOptions();
+static bool isWifinderSSID(String ssid);
+static void sortWifiOptions();
+static void beginScanWifi();
+static void updateWifiScan();
+static void updateWifiUi();
+static void updateWifiUiScanBtn();
+static void updateWifiUiSelectBtn();
+static void updateWifiUiRoller();
+static void updateWifiUiCompass();
+static void updateWifiUiWifiIcon();
+static void updateWifiUiRssi();
+static void updateWifiUiRssiArm();
+static void resetWifiPageState();
+static void updateCompass();
+static void stopBuzzer();
+static void alarmBuzzer();
+static void adjustBuzzerRate();
+static void updateRssi();
+static void updateBuzzer();
+static void recordUsageLog();
+static void actualOTAAction();
+
+void setup()
 {
-  if (!(pageLoadedFlag & PAGE_WIFISCAN_LOADED) || !ui_SceneScan)
+  pinMode(BUZZER_GPIO, OUTPUT);
+  Serial.begin(115200);
+
+  hasEeprom = EEPROM.begin(20);
+  if (!hasEeprom)
+  {
+    Serial.println("Can't Init EEPROM");
+  }
+
+  WiFi.mode(WIFI_STA);
+  Wire.setPins(PIN_SDA, PIN_SCL);
+
+  compass.init();
+
+  lv_init();
+  ESP_ERROR_CHECK(esp_timer_create(&ticker_timer_args, &ticker_timer));
+  ESP_ERROR_CHECK(esp_timer_start_periodic(ticker_timer, portTICK_RATE_MS * 1000));
+
+  // Enable TFT
+  tft.begin();
+  tft.setRotation(1);
+
+  // Enable Backlight
+  pinMode(TFT_BL, OUTPUT);
+  digitalWrite(TFT_BL, 1);
+
+  // Start TouchScreen
+  touchScreen.begin();
+
+  // Display Buffer
+  lv_disp_draw_buf_init(&disp_buf, buf, NULL, screenWidth * 10);
+
+  /*Initialize the display*/
+  static lv_disp_drv_t disp_drv;
+  lv_disp_drv_init(&disp_drv);
+  disp_drv.hor_res = screenWidth;
+  disp_drv.ver_res = screenHeight;
+  disp_drv.flush_cb = my_disp_flush;
+  disp_drv.draw_buf = &disp_buf;
+  lv_disp_drv_register(&disp_drv);
+
+  // Init Touchscreen
+  static lv_indev_drv_t indev_drv;
+  lv_indev_drv_init(&indev_drv);
+  indev_drv.type = LV_INDEV_TYPE_POINTER;
+  indev_drv.read_cb = touchpad_read;
+  lv_indev_drv_register(&indev_drv);
+
+  ui_init();
+
+  ESP_ERROR_CHECK(esp_timer_create(&ticker_update_args, &update_timer));
+  ESP_ERROR_CHECK(esp_timer_start_periodic(update_timer, 10 * portTICK_RATE_MS * 1000));
+}
+
+void loop()
+{
+  if (lv_scr_act() == ui_SceneScan)
+  {
+    if (hasEeprom && millis() - logRecordTime > LOG_USAGE_UPDATE_RATE)
+    {
+      logRecordTime = millis();
+      recordUsageLog();
+    }
+
+    if (millis() - compassTime > COMPASS_UPDATE_RATE)
+    {
+      compassTime = millis();
+      updateCompass();
+      updateWifiUiCompass();
+    }
+
+    if (millis() - wifiUiUpdateTime > WIFI_UI_UPDATE_RATE)
+    {
+      wifiUiUpdateTime = millis();
+
+      if (wifinderScanStatus == WIFINDER_SCANNING)
+      {
+        updateWifiScan();
+      }
+
+      if (wifinderScanStatus == WIFINDER_TRACKING_SCAN || wifinderScanStatus == WIFINDER_TRACKING)
+      {
+        updateRssi();
+        adjustBuzzerRate();
+        updateBuzzer();
+      }
+
+      updateWifiUiRssi();
+      updateWifiUiWifiIcon();
+    }
+  }
+
+  if (lv_scr_act() == ui_SceneOtaProgress)
+  {
+    if (!otaBegin && millis() - otaFadeTime > 2000)
+    {
+      otaBegin = true;
+      actualOTAAction();
+    }
+  }
+  delay(5);
+}
+
+static void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p)
+{
+  uint32_t w = (area->x2 - area->x1 + 1);
+  uint32_t h = (area->y2 - area->y1 + 1);
+
+  tft.startWrite();
+  tft.setAddrWindow(area->x1, area->y1, w, h);
+  tft.pushColors(&color_p->full, w * h, true);
+  tft.endWrite();
+
+  lv_disp_flush_ready(disp);
+}
+
+static void touchpad_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
+{
+  TouchPoint touchPos = touchScreen.read();
+  if (touchPos.touched)
+  {
+    data->state = LV_INDEV_STATE_PR;
+    data->point.x = touchPos.xPos;
+    data->point.y = touchPos.yPos;
+  }
+  else
+  {
+    data->state = LV_INDEV_STATE_REL;
+  }
+}
+
+static void lv_tick_task(void *arg)
+{
+  lv_tick_inc(portTICK_RATE_MS);
+}
+
+static void ui_update_task(void *arg)
+{
+  lv_task_handler();
+}
+
+void onHomePageLoad(lv_event_t *e)
+{
+  otaClickCount = 0;
+}
+
+void onHomePageUnload(lv_event_t *e)
+{
+  otaClickCount = 0;
+}
+
+void triggerSecretOTA(lv_event_t *e)
+{
+  if (lv_scr_act() != ui_SceneHome)
   {
     return;
   }
 
+  otaClickCount += 1;
+  if (otaClickCount >= 5)
+  {
+    prepareScreen(OTA_SCREEN);
+    lv_textarea_set_text(ui_TextAreaSSID, "");
+    lv_textarea_set_text(ui_TextAreaPassword, "");
+    swapScreenTo(OTA_SCREEN);
+  }
+}
+
+void onTextAreaSSIDFocus(lv_event_t *e)
+{
+  lv_keyboard_set_textarea(ui_Keyboard2, ui_TextAreaSSID);
+}
+
+void onTextAreaPasswordFocus(lv_event_t *e)
+{
+  lv_keyboard_set_textarea(ui_Keyboard2, ui_TextAreaPassword);
+}
+
+void onOTAProgressPageLoaded(lv_event_t *e)
+{
+  lv_obj_clear_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN);
+  lv_label_set_text(ui_LabelOTAProcess, "Starting OTA");
+
+  otaFadeTime = millis();
+  otaBegin = false;
+}
+
+void onOTAProgressPageUnloaded(lv_event_t *e)
+{
+  swapScreenWithPrepare(HOME_SCREEN);
+}
+
+void onScanPageLoaded(lv_event_t *e)
+{
+  resetWifiPageState();
+
+  lv_roller_set_selected(ui_RollerWifi, 0, LV_ANIM_OFF);
+  lv_roller_set_options(ui_RollerWifi, " ", LV_ROLLER_MODE_NORMAL);
+
+  beginScanWifi();
+}
+
+void onScanPageUnloaded(lv_event_t *e)
+{
+  stopBuzzer();
+}
+
+void toScanAction(lv_event_t *e)
+{
+  if (lv_scr_act() == ui_SceneScan && wifinderScanStatus == WIFINDER_SCAN_IDLE)
+  {
+    lv_roller_set_selected(ui_RollerWifi, 0, LV_ANIM_OFF);
+    lv_roller_set_options(ui_RollerWifi, " ", LV_ROLLER_MODE_NORMAL);
+
+    beginScanWifi();
+  }
+}
+
+void toSelectWifiAction(lv_event_t *e)
+{
+  if (lv_scr_act() != ui_SceneScan || wifinderScanStatus == WIFINDER_SCANNING)
+  {
+    return;
+  }
+
+  uint16_t selectedId = lv_roller_get_selected(ui_RollerWifi);
+  if (wifinderScanStatus == WIFINDER_SCAN_IDLE)
+  {
+    wifiScanSelectedSSID = wifiOptions[selectedId];
+    rssiTimeout = MAX_RSSI_TIMEOUT;
+    wifiIconBlinkTime = millis();
+    wifinderScanStatus = WIFINDER_TRACKING_SCAN;
+    WiFi.scanNetworks(true);
+  }
+  else
+  {
+    wifinderScanStatus = WIFINDER_SCAN_IDLE;
+  }
+
+  buzzerUpdateRate = 5000;
+  buzzerTime = 0;
+  buzzerAlarm = false;
+  stopBuzzer();
+
+  updateWifiUi();
+}
+
+static void updateScanUiOptions()
+{
   if (wifiOptionLength > 0)
   {
     String options = "";
@@ -124,8 +394,6 @@ static void updateScanUiOptions()
       }
       options.concat(wifiOptions[i]);
     }
-
-    // Serial.println(options);
 
     lv_roller_set_selected(ui_RollerWifi, 0, LV_ANIM_OFF);
     lv_roller_set_options(ui_RollerWifi, options.c_str(), LV_ROLLER_MODE_NORMAL);
@@ -195,23 +463,25 @@ static void sortWifiOptions()
   }
 }
 
-static void scanWifiForOptions()
+static void beginScanWifi()
 {
-  if (!(wifiScaningFlag & WIFI_SCANNING_LIST))
-  {
-    wifiOptionLength = WiFi.scanNetworks(true);
-    wifiScaningFlag = wifiScaningFlag | WIFI_SCANNING_LIST;
-    wifiIconBlinkTime = millis();
-  }
+  WiFi.scanNetworks(true);
 
+  wifinderScanStatus = WIFINDER_SCANNING;
+  wifiIconBlinkTime = millis();
+
+  updateWifiUi();
+}
+
+static void updateWifiScan()
+{
   wifiOptionLength = WiFi.scanComplete();
-
   if (wifiOptionLength != WIFI_SCAN_RUNNING)
   {
     Serial.print("Scan Result: ");
     Serial.println(wifiOptionLength);
 
-    wifiScaningFlag = wifiScaningFlag & ~WIFI_SCANNING_LIST;
+    wifinderScanStatus = WIFINDER_SCAN_IDLE;
 
     if (wifiOptionLength > 0)
     {
@@ -219,14 +489,202 @@ static void scanWifiForOptions()
     }
 
     updateScanUiOptions();
+
+    updateWifiUi();
+  }
+}
+
+static void updateWifiUi()
+{
+  updateWifiUiScanBtn();
+  updateWifiUiSelectBtn();
+  updateWifiUiRoller();
+}
+
+static void updateWifiUiScanBtn()
+{
+  switch (wifinderScanStatus)
+  {
+  case WIFINDER_SCAN_IDLE:
+    lv_obj_set_style_text_color(ui_LabelImgButtonScan, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    break;
+  case WIFINDER_SCANNING:
+  case WIFINDER_TRACKING:
+  case WIFINDER_TRACKING_SCAN:
+  default:
+    lv_obj_set_style_text_color(ui_LabelImgButtonScan, lv_color_hex(0x777777), LV_PART_MAIN | LV_STATE_DEFAULT);
+    break;
+  }
+}
+
+static void updateWifiUiSelectBtn()
+{
+  switch (wifinderScanStatus)
+  {
+  case WIFINDER_SCANNING:
+    lv_obj_set_style_text_color(ui_LabelImgButtonSelect, lv_color_hex(0x777777), LV_PART_MAIN | LV_STATE_DEFAULT);
+    break;
+  case WIFINDER_SCAN_IDLE:
+  case WIFINDER_TRACKING:
+  case WIFINDER_TRACKING_SCAN:
+  default:
+    lv_obj_set_style_text_color(ui_LabelImgButtonSelect, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    break;
+  }
+
+  switch (wifinderScanStatus)
+  {
+  case WIFINDER_TRACKING:
+  case WIFINDER_TRACKING_SCAN:
+    lv_label_set_text(ui_LabelImgButtonSelect, "Deselect");
+    break;
+  case WIFINDER_SCANNING:
+  case WIFINDER_SCAN_IDLE:
+  default:
+    lv_label_set_text(ui_LabelImgButtonSelect, "Select");
+    break;
+  }
+}
+
+static void updateWifiUiRoller()
+{
+  if (wifinderScanStatus == WIFINDER_SCAN_IDLE && wifiOptionLength > 0)
+  {
+    lv_obj_add_flag(ui_RollerWifi, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_text_color(ui_RollerWifi, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+  }
+  else
+  {
+    lv_obj_clear_flag(ui_RollerWifi, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_text_color(ui_RollerWifi, lv_color_hex(0x777777), LV_PART_MAIN | LV_STATE_DEFAULT);
+  }
+}
+
+static void updateWifiUiCompass()
+{
+  // Compass Label
+  if (compassDegValue >= 0)
+  {
+    lv_label_set_text(ui_LabelCompassValue, String(animatedCompassDegValue).c_str());
+    lv_label_set_text(ui_LabelCompass1, compassDir.c_str());
+  }
+  else
+  {
+    lv_label_set_text(ui_LabelCompassValue, "-");
+  }
+}
+
+static void updateWifiUiWifiIcon()
+{
+  if (wifinderScanStatus != WIFINDER_SCAN_IDLE)
+  {
+    if (millis() - wifiIconBlinkTime > WIFI_BLINK_RATE)
+    {
+      wifiIconBlinkTime = millis();
+      wifiIconDisplay = !wifiIconDisplay;
+    }
+  }
+  else
+  {
+    wifiIconDisplay = false;
+  }
+
+  if (wifiIconDisplay)
+  {
+    lv_obj_clear_flag(ui_ImageWifi, LV_OBJ_FLAG_HIDDEN);
+  }
+  else
+  {
+    lv_obj_add_flag(ui_ImageWifi, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+static void updateWifiUiRssi()
+{
+  if (animatedCompassDegValue != compassDegValue)
+  {
+    int compassDiff = compassDegValue - animatedCompassDegValue;
+    if (compassDiff >= -1 && compassDiff <= 1)
+    {
+      animatedCompassDegValue = compassDegValue;
+    }
+    else
+    {
+      animatedCompassDegValue = animatedCompassDegValue + compassDiff / 2;
+    }
+  }
+
+  if (animatedWifiRssiValue != wifiRssiValue)
+  {
+    int rssiDiff = wifiRssiValue - animatedWifiRssiValue;
+    if (rssiDiff >= -1 && rssiDiff <= 1)
+    {
+      animatedWifiRssiValue = wifiRssiValue;
+    }
+    else
+    {
+      animatedWifiRssiValue = animatedWifiRssiValue + rssiDiff / 2;
+    }
+  }
+
+  // Rssi Label
+  switch (wifinderScanStatus)
+  {
+  case WIFINDER_TRACKING:
+  case WIFINDER_TRACKING_SCAN:
+    if (rssiTimeout < MAX_RSSI_TIMEOUT)
+    {
+      updateWifiUiRssiArm();
+      lv_label_set_text(ui_LabelRssiValue, String(animatedWifiRssiValue).c_str());
+    }
+    else
+    {
+      lv_label_set_text(ui_LabelRssiValue, "?");
+    }
+    break;
+  case WIFINDER_SCAN_IDLE:
+  case WIFINDER_SCANNING:
+  default:
+    lv_label_set_text(ui_LabelRssiValue, "-");
+    break;
+  }
+}
+
+static void updateWifiUiRssiArm()
+{
+  if (animatedWifiRssiValue > 0)
+  {
+    lv_arc_set_value(ui_ArcRssi, 0);
+  }
+  else if (animatedWifiRssiValue < -100)
+  {
+    lv_arc_set_value(ui_ArcRssi, -100);
+  }
+  else
+  {
+    lv_arc_set_value(ui_ArcRssi, animatedWifiRssiValue);
+  }
+
+  if (animatedWifiRssiValue > 0)
+  {
+    lv_img_set_angle(ui_ImageGaugeArm, 1350);
+  }
+  else if (animatedWifiRssiValue < -100)
+  {
+    lv_img_set_angle(ui_ImageGaugeArm, -1350);
+  }
+  else
+  {
+    int deg = (animatedWifiRssiValue + 100) * 27 - 1350; // 0 : 100
+    lv_img_set_angle(ui_ImageGaugeArm, deg);
   }
 }
 
 static void resetWifiPageState()
 {
   // Serial.println("Reset State Trigger");
+  wifinderScanStatus = WIFINDER_SCAN_IDLE;
   wifiRssiValue = animatedWifiRssiValue = -100;
-  wifiScaningFlag = 0b0000;
   wifiIconDisplay = false;
   wifiOptionLength = WIFI_SCAN_RUNNING;
   compassTime = 0;
@@ -242,9 +700,11 @@ static void updateCompass()
 
   // Return Azimuth reading
   compassDegValue = compass.getAzimuth();
-  char dirArr[3];
+  char dirArr[4] = "";
   compass.getDirection(dirArr, compassDegValue);
-  compassDir = String(dirArr).substring(1);
+
+  // TODO fix compassDir Bug
+  compassDir = String(dirArr).substring(1, 3);
   compassDir.trim();
 
   int x, y, z, b;
@@ -266,7 +726,7 @@ static void stopBuzzer()
 
 static void alarmBuzzer()
 {
-  if (!(wifiScaningFlag & WIFI_SCAN_SELECTED))
+  if (wifinderScanStatus != WIFINDER_TRACKING_SCAN && wifinderScanStatus != WIFINDER_TRACKING)
   {
     return;
   }
@@ -302,19 +762,21 @@ static void adjustBuzzerRate()
 
 static void updateRssi()
 {
-  int scanResult = WIFI_SCAN_RUNNING;
-
-  if (!(wifiScaningFlag & WIFI_SCANNING_RSSI))
+  if (wifinderScanStatus != WIFINDER_TRACKING && wifinderScanStatus != WIFINDER_TRACKING_SCAN)
   {
-    scanResult = WiFi.scanNetworks(true);
-    wifiScaningFlag = wifiScaningFlag | WIFI_SCANNING_RSSI;
+    return;
   }
 
-  scanResult = WiFi.scanComplete();
+  int scanResult = WiFi.scanComplete();
+  if (wifinderScanStatus == WIFINDER_TRACKING)
+  {
+    scanResult = WiFi.scanNetworks(true);
+    wifinderScanStatus = WIFINDER_TRACKING_SCAN;
+  }
 
   if (scanResult > 0)
   {
-    wifiScaningFlag = wifiScaningFlag & ~WIFI_SCANNING_RSSI;
+    wifinderScanStatus = WIFINDER_TRACKING;
 
     bool hasValue = false;
     for (int i = 0; i < scanResult; i++)
@@ -344,189 +806,55 @@ static void updateRssi()
   }
 }
 
-static void updateWifiScanUi()
+static void updateBuzzer()
 {
-  if (!(pageLoadedFlag & PAGE_WIFISCAN_LOADED) || !ui_SceneScan)
+  if (rssiTimeout < MAX_RSSI_TIMEOUT)
   {
-    return;
-  }
-
-  if (animatedWifiRssiValue != wifiRssiValue)
-  {
-    int rssiDiff = wifiRssiValue - animatedWifiRssiValue;
-    if (rssiDiff >= -1 && rssiDiff <= 1)
+    if (millis() - buzzerTime > buzzerUpdateRate)
     {
-      animatedWifiRssiValue = wifiRssiValue;
+      buzzerTime = millis();
+      alarmBuzzer();
     }
-    else
+    else if (buzzerAlarm && millis() - buzzerTime > BUZZER_DURATION)
     {
-      animatedWifiRssiValue = animatedWifiRssiValue + rssiDiff / 2;
+      stopBuzzer();
     }
-  }
-
-  // Scan Btn
-  if (wifiScaningFlag & (WIFI_SCANNING_LIST | WIFI_SCAN_SELECTED))
-  {
-    lv_obj_set_style_text_color(ui_LabelImgButtonScan, lv_color_hex(0x777777), LV_PART_MAIN | LV_STATE_DEFAULT);
-  }
-  else
-  {
-    lv_obj_set_style_text_color(ui_LabelImgButtonScan, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-  }
-
-  // Select Btn
-  if (!(wifiScaningFlag & WIFI_SCAN_SELECTED) && ((wifiScaningFlag & WIFI_SCANNING_LIST) || wifiOptionLength < 0))
-  {
-    lv_obj_set_style_text_color(ui_LabelImgButtonSelect, lv_color_hex(0x777777), LV_PART_MAIN | LV_STATE_DEFAULT);
-  }
-  else
-  {
-    lv_obj_set_style_text_color(ui_LabelImgButtonSelect, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-  }
-
-  if (wifiScaningFlag & WIFI_SCAN_SELECTED)
-  {
-    lv_label_set_text(ui_LabelImgButtonSelect, "Deselect");
-  }
-  else
-  {
-    lv_label_set_text(ui_LabelImgButtonSelect, "Select");
-  }
-
-  // Roller Scroll
-  if (!(wifiScaningFlag & (WIFI_SCANNING_LIST | WIFI_SCAN_SELECTED)) && wifiOptionLength > 0)
-  { // Can Scroll
-    lv_obj_add_flag(ui_RollerWifi, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_text_color(ui_RollerWifi, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-  }
-  else
-  { // Can't
-    lv_obj_clear_flag(ui_RollerWifi, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_text_color(ui_RollerWifi, lv_color_hex(0x777777), LV_PART_MAIN | LV_STATE_DEFAULT);
-  }
-
-  // Rssi Label
-  if (wifiScaningFlag & WIFI_SCAN_SELECTED && rssiTimeout < MAX_RSSI_TIMEOUT)
-  {
-    lv_label_set_text(ui_LabelRssiValue, String(animatedWifiRssiValue).c_str());
-  }
-  else if (wifiScaningFlag & WIFI_SCAN_SELECTED)
-  {
-    lv_label_set_text(ui_LabelRssiValue, "?");
-  }
-  else
-  {
-    lv_label_set_text(ui_LabelRssiValue, "-");
-  }
-
-  // Arc
-  if (wifiScaningFlag & WIFI_SCAN_SELECTED && rssiTimeout < MAX_RSSI_TIMEOUT)
-  {
-    if (animatedWifiRssiValue > 0)
-    {
-      lv_arc_set_value(ui_ArcRssi, 0);
-    }
-    else if (animatedWifiRssiValue < -100)
-    {
-      lv_arc_set_value(ui_ArcRssi, -100);
-    }
-    else
-    {
-      lv_arc_set_value(ui_ArcRssi, animatedWifiRssiValue);
-    }
-  }
-
-  // Arm
-  if (wifiScaningFlag & WIFI_SCAN_SELECTED && rssiTimeout < MAX_RSSI_TIMEOUT)
-  {
-    if (animatedWifiRssiValue > 0)
-    {
-      lv_img_set_angle(ui_ImageGaugeArm, 1350);
-    }
-    else if (animatedWifiRssiValue < -100)
-    {
-      lv_img_set_angle(ui_ImageGaugeArm, -1350);
-    }
-    else
-    {
-      int deg = (animatedWifiRssiValue + 100) * 27 - 1350; // 0 : 100
-      lv_img_set_angle(ui_ImageGaugeArm, deg);
-    }
-  }
-
-  if (animatedCompassDegValue != compassDegValue)
-  {
-    int compassDiff = compassDegValue - animatedCompassDegValue;
-    if (compassDiff >= -1 && compassDiff <= 1)
-    {
-      animatedCompassDegValue = compassDegValue;
-    }
-    else
-    {
-      animatedCompassDegValue = animatedCompassDegValue + compassDiff / 2;
-    }
-  }
-
-  // Compass Label
-  if (compassDegValue >= 0)
-  {
-    lv_label_set_text(ui_LabelCompassValue, String(animatedCompassDegValue).c_str());
-
-    lv_label_set_text(ui_LabelCompass1, compassDir.c_str());
-  }
-  else
-  {
-    lv_label_set_text(ui_LabelCompassValue, "-");
-  }
-
-  // WifIcon
-  if (wifiIconDisplay)
-  {
-    lv_obj_clear_flag(ui_ImageWifi, LV_OBJ_FLAG_HIDDEN);
-  }
-  else
-  {
-    lv_obj_add_flag(ui_ImageWifi, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
-void onHomePageLoad(lv_event_t *e)
+static void recordUsageLog()
 {
-  pageLoadedFlag = pageLoadedFlag | PAGE_HOME_LOADED;
-  otaClickCount = 0;
-}
+  uint64_t logKey = EEPROM.readULong64(LOG_EEPROM_HEADER_ADDR);
+  uint32_t version = EEPROM.readUInt(LOG_EEPROM_VERSION_ADDR);
 
-void onHomePageUnload(lv_event_t *e)
-{
-  pageLoadedFlag = pageLoadedFlag & ~PAGE_HOME_LOADED;
-  otaClickCount = 0;
-}
-
-void triggerSecretOTA(lv_event_t *e)
-{
-  if (!(pageLoadedFlag & PAGE_HOME_LOADED))
+  if (logKey != LOG_EEPROM_HEADER || version != WIFINDER_VERSION)
   {
-    return;
+    // format and save time start 0
+    Serial.println("Init EEPROM Format");
+    EEPROM.writeULong64(LOG_EEPROM_HEADER_ADDR, LOG_EEPROM_HEADER);
+    EEPROM.writeULong(LOG_EEPROM_VERSION_ADDR, WIFINDER_VERSION);
+    EEPROM.writeULong64(LOG_EEPROM_MINUTES_ADDR, 1);
+  }
+  else
+  {
+    uint64_t minutes = EEPROM.readULong64(LOG_EEPROM_MINUTES_ADDR);
+    if (minutes < ULONG_MAX)
+    {
+      EEPROM.writeULong64(LOG_EEPROM_MINUTES_ADDR, minutes + 1);
+    }
   }
 
-  otaClickCount += 1;
-  if (otaClickCount >= 5)
+  Serial.print("Minutes: ");
+  Serial.println(EEPROM.readULong64(LOG_EEPROM_MINUTES_ADDR));
+
+  if (EEPROM.commit())
   {
-    prepareScreen(OTA_SCREEN);
-    lv_textarea_set_text(ui_TextAreaSSID, "");
-    lv_textarea_set_text(ui_TextAreaPassword, "");
-    swapScreenTo(OTA_SCREEN);
+    Serial.println("EEPROM Saved");
   }
-}
-
-void onTextAreaSSIDFocus(lv_event_t *e)
-{
-  lv_keyboard_set_textarea(ui_Keyboard2, ui_TextAreaSSID);
-}
-
-void onTextAreaPasswordFocus(lv_event_t *e)
-{
-  lv_keyboard_set_textarea(ui_Keyboard2, ui_TextAreaPassword);
+  else
+  {
+    Serial.println("Can't Save EEPROM");
+  }
 }
 
 static void actualOTAAction()
@@ -558,6 +886,7 @@ static void actualOTAAction()
     lv_label_set_text(ui_LabelOTAProcess, "Can't Connect to Server");
     lv_obj_clear_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_CLICKABLE);
+    WiFi.disconnect();
     return;
   }
 
@@ -608,6 +937,7 @@ static void actualOTAAction()
     lv_label_set_text(ui_LabelOTAProcess, "Can't Get Info from Server");
     lv_obj_clear_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_CLICKABLE);
+    WiFi.disconnect();
     return;
   }
 
@@ -625,6 +955,7 @@ static void actualOTAAction()
     lv_label_set_text(ui_LabelOTAProcess, "Up to date");
     lv_obj_clear_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_CLICKABLE);
+    WiFi.disconnect();
     return;
   }
 
@@ -649,279 +980,5 @@ static void actualOTAAction()
 
   lv_obj_clear_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_CLICKABLE);
-}
-
-void onOTAProgressPageLoaded(lv_event_t *e)
-{
-  lv_obj_clear_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN);
-  lv_label_set_text(ui_LabelOTAProcess, "Starting OTA");
-
-  otaFadeTime = millis();
-  otaBegin = false;
-  pageLoadedFlag = pageLoadedFlag | PAGE_OTAPROGRESS_LOADED;
-}
-
-void onOTAProgressPageUnloaded(lv_event_t *e)
-{
-  ESP.restart();
-  // pageLoadedFlag = pageLoadedFlag & ~PAGE_OTAPROGRESS_LOADED;
-}
-
-void onScanPageLoaded(lv_event_t *e)
-{
-  resetWifiPageState();
-  pageLoadedFlag = pageLoadedFlag | PAGE_WIFISCAN_LOADED;
-
-  lv_roller_set_selected(ui_RollerWifi, 0, LV_ANIM_OFF);
-  lv_roller_set_options(ui_RollerWifi, " ", LV_ROLLER_MODE_NORMAL);
-
-  scanWifiForOptions();
-  updateWifiScanUi();
-}
-
-void onScanPageUnloaded(lv_event_t *e)
-{
-  pageLoadedFlag = pageLoadedFlag & ~PAGE_WIFISCAN_LOADED;
-  stopBuzzer();
-}
-
-void toScanAction(lv_event_t *e)
-{
-  if ((pageLoadedFlag & PAGE_WIFISCAN_LOADED) && !(wifiScaningFlag & (WIFI_SCANNING_LIST | WIFI_SCAN_SELECTED)))
-  {
-    scanWifiForOptions();
-    updateWifiScanUi();
-  }
-}
-
-void toSelectWifiAction(lv_event_t *e)
-{
-  if (!(pageLoadedFlag & PAGE_WIFISCAN_LOADED) || (wifiScaningFlag & WIFI_SCANNING_LIST) || wifiOptionLength < 0)
-  {
-    return;
-  }
-
-  uint16_t selectedId = lv_roller_get_selected(ui_RollerWifi);
-
-  if (!(wifiScaningFlag & WIFI_SCAN_SELECTED))
-  {
-    wifiScanSelectedSSID = wifiOptions[selectedId];
-    wifiScaningFlag = wifiScaningFlag | WIFI_SCAN_SELECTED;
-    wifiScaningFlag = wifiScaningFlag & ~WIFI_SCANNING_RSSI;
-    rssiTimeout = MAX_RSSI_TIMEOUT;
-    wifiIconBlinkTime = millis();
-  }
-  else
-  {
-    wifiScaningFlag = wifiScaningFlag & ~WIFI_SCAN_SELECTED;
-  }
-
-  buzzerUpdateRate = 5000;
-  buzzerTime = 0;
-  buzzerAlarm = false;
-  stopBuzzer();
-
-  updateWifiScanUi();
-}
-
-static void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p)
-{
-  uint32_t w = (area->x2 - area->x1 + 1);
-  uint32_t h = (area->y2 - area->y1 + 1);
-
-  tft.startWrite();
-  tft.setAddrWindow(area->x1, area->y1, w, h);
-  tft.pushColors(&color_p->full, w * h, true);
-  tft.endWrite();
-
-  lv_disp_flush_ready(disp);
-}
-
-static void touchpad_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
-{
-  TouchPoint touchPos = touchScreen.read();
-  if (touchPos.touched)
-  {
-    data->state = LV_INDEV_STATE_PR;
-    data->point.x = touchPos.xPos;
-    data->point.y = touchPos.yPos;
-  }
-  else
-  {
-    data->state = LV_INDEV_STATE_REL;
-  }
-}
-
-static void recordUsageLog()
-{
-  uint64_t logKey = EEPROM.readULong64(LOG_EEPROM_HEADER_ADDR);
-  uint32_t version = EEPROM.readUInt(LOG_EEPROM_VERSION_ADDR);
-
-  if (logKey != LOG_EEPROM_HEADER || version != WIFINDER_VERSION)
-  {
-    // format and save time start 0
-    Serial.println("Init EEPROM Format");
-    EEPROM.writeULong64(LOG_EEPROM_HEADER_ADDR, LOG_EEPROM_HEADER);
-    EEPROM.writeULong(LOG_EEPROM_VERSION_ADDR, WIFINDER_VERSION);
-    EEPROM.writeULong64(LOG_EEPROM_MINUTES_ADDR, 1);
-  }
-  else
-  {
-    uint64_t minutes = EEPROM.readULong64(LOG_EEPROM_MINUTES_ADDR);
-    if (minutes < ULONG_MAX)
-    {
-      EEPROM.writeULong64(LOG_EEPROM_MINUTES_ADDR, minutes + 1);
-    }
-  }
-
-  Serial.print("Minutes: ");
-  Serial.println(EEPROM.readULong64(LOG_EEPROM_MINUTES_ADDR));
-
-  if (EEPROM.commit())
-  {
-    Serial.println("EEPROM Saved");
-  }
-  else
-  {
-    Serial.println("Can't Save EEPROM");
-  }
-}
-
-static void lv_tick_task(void *arg)
-{
-  lv_tick_inc(portTICK_RATE_MS);
-}
-
-static void ui_update_task(void *arg)
-{
-  lv_task_handler();
-}
-
-void setup()
-{
-  pinMode(BUZZER_GPIO, OUTPUT);
-  Serial.begin(115200);
-
-  hasEeprom = EEPROM.begin(20);
-  if (!hasEeprom)
-  {
-    Serial.println("Can't Init EEPROM");
-  }
-
-  WiFi.mode(WIFI_STA);
-  Wire.setPins(PIN_SDA, PIN_SCL);
-
-  compass.init();
-
-  lv_init();
-  ESP_ERROR_CHECK(esp_timer_create(&ticker_timer_args, &ticker_timer));
-  ESP_ERROR_CHECK(esp_timer_start_periodic(ticker_timer, portTICK_RATE_MS * 1000));
-
-  // Enable TFT
-  tft.begin();
-  tft.setRotation(1);
-
-  // Enable Backlight
-  pinMode(TFT_BL, OUTPUT);
-  digitalWrite(TFT_BL, 1);
-
-  // Start TouchScreen
-  touchScreen.begin();
-
-  // Display Buffer
-  lv_disp_draw_buf_init(&disp_buf, buf, NULL, screenWidth * 10);
-
-  /*Initialize the display*/
-  static lv_disp_drv_t disp_drv;
-  lv_disp_drv_init(&disp_drv);
-  disp_drv.hor_res = screenWidth;
-  disp_drv.ver_res = screenHeight;
-  disp_drv.flush_cb = my_disp_flush;
-  disp_drv.draw_buf = &disp_buf;
-  lv_disp_drv_register(&disp_drv);
-
-  // Init Touchscreen
-  static lv_indev_drv_t indev_drv;
-  lv_indev_drv_init(&indev_drv);
-  indev_drv.type = LV_INDEV_TYPE_POINTER;
-  indev_drv.read_cb = touchpad_read;
-  lv_indev_drv_register(&indev_drv);
-
-  ui_init();
-
-  ESP_ERROR_CHECK(esp_timer_create(&ticker_update_args, &update_timer));
-  ESP_ERROR_CHECK(esp_timer_start_periodic(update_timer, 50 * portTICK_RATE_MS * 1000));
-}
-
-void loop()
-{
-  if (pageLoadedFlag & PAGE_WIFISCAN_LOADED)
-  {
-    if (hasEeprom && millis() - logRecordTime > LOG_USAGE_UPDATE_RATE)
-    {
-      logRecordTime = millis();
-      recordUsageLog();
-    }
-
-    if (millis() - compassTime > COMPASS_UPDATE_RATE)
-    {
-      compassTime = millis();
-      updateCompass();
-    }
-
-    if (wifiScaningFlag & WIFI_SCANNING_LIST)
-    {
-      scanWifiForOptions();
-    }
-
-    if (wifiScaningFlag & WIFI_SCAN_SELECTED)
-    {
-      updateRssi();
-
-      if (rssiTimeout < MAX_RSSI_TIMEOUT)
-      {
-        if (millis() - buzzerTime > buzzerUpdateRate)
-        {
-          buzzerTime = millis();
-          alarmBuzzer();
-        }
-        else if (buzzerAlarm && millis() - buzzerTime > BUZZER_UPDATE_DURATION)
-        {
-          stopBuzzer();
-        }
-      }
-
-      adjustBuzzerRate();
-    }
-
-    if (wifiScaningFlag & WIFI_SCANNING_LIST || wifiScaningFlag & WIFI_SCAN_SELECTED)
-    {
-      if (millis() - wifiIconBlinkTime > WIFI_BLINK_RATE)
-      {
-        wifiIconBlinkTime = millis();
-        wifiIconDisplay = !wifiIconDisplay;
-      }
-    }
-    else
-    {
-      wifiIconDisplay = false;
-    }
-
-    if (millis() - wifiUiUpdateTime > WIFI_UI_UPDATE_RATE)
-    {
-      updateWifiScanUi();
-    }
-  }
-
-  if (pageLoadedFlag & PAGE_OTAPROGRESS_LOADED)
-  {
-    if (!otaBegin && millis() - otaFadeTime > 2000)
-    {
-      otaBegin = true;
-      actualOTAAction();
-    }
-  }
-
-  delay(5);
+  WiFi.disconnect();
 }

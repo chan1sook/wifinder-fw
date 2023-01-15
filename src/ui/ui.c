@@ -614,7 +614,6 @@ void ui_SceneScan_screen_init(void)
 	lv_obj_set_height(ui_ArcRssi, 200);
 	lv_obj_set_align(ui_ArcRssi, LV_ALIGN_CENTER);
 	lv_obj_clear_flag(ui_ArcRssi, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE); /// Flags
-	lv_obj_set_scrollbar_mode(ui_ArcRssi, LV_SCROLLBAR_MODE_OFF);
 	lv_arc_set_range(ui_ArcRssi, -100, 0);
 	lv_arc_set_value(ui_ArcRssi, -100);
 

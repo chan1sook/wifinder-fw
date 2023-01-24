@@ -1,0 +1,6 @@
+offset,path
+"0x1000","C:\\Users\\chan1\\Desktop\\Works\\WiFinder Firmware\\wifinder_fw\\.pio\\build\\wt32-sc01\\bootloader.bin"
+"0x8000","c:\\Users\\chan1\\Desktop\\Works\\WiFinder Firmware\\wifinder_fw\\.pio\\build\\wt32-sc01\\partitions.bin"
+"0xe000","C:\\Users\\chan1\\.platformio\\packages\\framework-arduinoespressif32\\tools\\partitions\\boot_app0.bin"
+
+application_offset "0x10000"

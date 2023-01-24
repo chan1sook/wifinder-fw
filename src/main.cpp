@@ -1,5 +1,5 @@
-#define WIFINDER_VERSION (9UL)
-const char *wifinderVersionStr = "1.4.2";
+#define WIFINDER_VERSION (10UL)
+const char *wifinderVersionStr = "1.5.0";
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -18,10 +18,6 @@ const char *wifinderVersionStr = "1.4.2";
 
 TFT_eSPI tft = TFT_eSPI();
 FT62XXTouchScreen touchScreen = FT62XXTouchScreen(TFT_WIDTH, PIN_SDA, PIN_SCL);
-
-// Find yours here: http://www.magnetic-declination.com/
-// Mine is: -0* 50' W, which is ~5/6 Degrees, or (which we need) 0.01454 radians
-#define DECLINATION_ANGLE 0.01454
 
 QMC5883LCompass compass;
 
@@ -309,6 +305,12 @@ void onTextAreaSSIDFocus(lv_event_t *e)
 void onTextAreaPasswordFocus(lv_event_t *e)
 {
   lv_keyboard_set_textarea(ui_Keyboard2, ui_TextAreaPassword);
+}
+
+void toggleOtaPwReveal(lv_event_t *e)
+{
+  bool state = lv_textarea_get_password_mode(ui_TextAreaPassword);
+  lv_textarea_set_password_mode(ui_TextAreaPassword, !state);
 }
 
 void onOTAProgressPageLoaded(lv_event_t *e)

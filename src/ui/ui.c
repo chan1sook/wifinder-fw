@@ -9,7 +9,9 @@
 ///////////////////// VARIABLES ////////////////////
 void ui_event_SceneHome(lv_event_t *e);
 lv_obj_t *ui_SceneHome;
+#if SCRENE_INFO_INCLUDE
 void ui_event_ImgButtonInfoPage(lv_event_t *e);
+#endif
 lv_obj_t *ui_ImgButtonInfoPage;
 lv_obj_t *ui_LabelImgButtonInfoPage;
 void ui_event_ImgButtonScanPage(lv_event_t *e);
@@ -24,6 +26,8 @@ lv_obj_t *ui_ImageTextHome1;
 lv_obj_t *ui_ImageTextHome2;
 lv_obj_t *ui_ImageTextHome3;
 lv_obj_t *ui_LabelVersion;
+
+#if SCRENE_INFO_INCLUDE
 lv_obj_t *ui_SceneInfo;
 void ui_event_ImgButtonHomePage1(lv_event_t *e);
 lv_obj_t *ui_ImgButtonHomePage1;
@@ -38,6 +42,8 @@ lv_obj_t *ui_ImageTextInfo6;
 lv_obj_t *ui_ImageTextInfo7;
 lv_obj_t *ui_ImageTextInfo8;
 lv_obj_t *ui_ImageTextInfo9;
+#endif
+
 void ui_event_SceneScan(lv_event_t *e);
 lv_obj_t *ui_SceneScan;
 lv_obj_t *ui_RollerWifi;
@@ -62,7 +68,6 @@ lv_obj_t *ui_SceneOta;
 void ui_event_ImgButtonOTA(lv_event_t *e);
 lv_obj_t *ui_ImgButtonOTA;
 lv_obj_t *ui_LabelImgButtonOTA;
-lv_obj_t *ui_LabelOTATitle;
 void ui_event_ImgButtonHomePage3(lv_event_t *e);
 lv_obj_t *ui_ImgButtonHomePage3;
 lv_obj_t *ui_ImageHome3;
@@ -73,6 +78,9 @@ lv_obj_t *ui_TextAreaPassword;
 lv_obj_t *ui_LabelWifiSSID;
 lv_obj_t *ui_LabelWifiPassword;
 lv_obj_t *ui_Keyboard2;
+void ui_event_ImgButtonPwReveal(lv_event_t *e);
+lv_obj_t *ui_ImgButtonPwReveal;
+lv_obj_t *ui_ImageEye;
 void ui_event_SceneOtaProgress(lv_event_t *e);
 lv_obj_t *ui_SceneOtaProgress;
 lv_obj_t *ui_LabelOTAProcess;
@@ -104,6 +112,7 @@ void ui_event_SceneHome(lv_event_t *e)
 		onHomePageUnload(e);
 	}
 }
+#if SCRENE_INFO_INCLUDE
 void ui_event_ImgButtonInfoPage(lv_event_t *e)
 {
 	lv_event_code_t event_code = lv_event_get_code(e);
@@ -113,6 +122,7 @@ void ui_event_ImgButtonInfoPage(lv_event_t *e)
 		swapScreenWithPrepare(INFO_SCREEN);
 	}
 }
+#endif
 void ui_event_ImgButtonScanPage(lv_event_t *e)
 {
 	lv_event_code_t event_code = lv_event_get_code(e);
@@ -131,6 +141,7 @@ void ui_event_ImageSponser3(lv_event_t *e)
 		triggerSecretOTA(e);
 	}
 }
+#if SCRENE_INFO_INCLUDE
 void ui_event_ImgButtonHomePage1(lv_event_t *e)
 {
 	lv_event_code_t event_code = lv_event_get_code(e);
@@ -140,6 +151,7 @@ void ui_event_ImgButtonHomePage1(lv_event_t *e)
 		swapScreenWithPrepare(HOME_SCREEN);
 	}
 }
+#endif
 void ui_event_SceneScan(lv_event_t *e)
 {
 	lv_event_code_t event_code = lv_event_get_code(e);
@@ -216,6 +228,15 @@ void ui_event_TextAreaPassword(lv_event_t *e)
 		onTextAreaPasswordFocus(e);
 	}
 }
+void ui_event_ImgButtonPwReveal(lv_event_t *e)
+{
+	lv_event_code_t event_code = lv_event_get_code(e);
+	lv_obj_t *target = lv_event_get_target(e);
+	if (event_code == LV_EVENT_CLICKED)
+	{
+		toggleOtaPwReveal(e);
+	}
+}
 void ui_event_SceneOtaProgress(lv_event_t *e)
 {
 	lv_event_code_t event_code = lv_event_get_code(e);
@@ -247,6 +268,7 @@ void ui_SceneHome_screen_init(void)
 	lv_obj_set_style_bg_color(ui_SceneHome, lv_color_hex(0x34276B), LV_PART_MAIN | LV_STATE_DEFAULT);
 	lv_obj_set_style_bg_opa(ui_SceneHome, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+#if SCRENE_INFO_INCLUDE
 	ui_ImgButtonInfoPage = lv_btn_create(ui_SceneHome);
 	lv_obj_set_width(ui_ImgButtonInfoPage, 80);
 	lv_obj_set_height(ui_ImgButtonInfoPage, 36);
@@ -268,11 +290,16 @@ void ui_SceneHome_screen_init(void)
 	lv_label_set_text(ui_LabelImgButtonInfoPage, "Info");
 	lv_obj_set_style_text_color(ui_LabelImgButtonInfoPage, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
 	lv_obj_set_style_text_opa(ui_LabelImgButtonInfoPage, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+#endif
 
 	ui_ImgButtonScanPage = lv_btn_create(ui_SceneHome);
 	lv_obj_set_width(ui_ImgButtonScanPage, 80);
 	lv_obj_set_height(ui_ImgButtonScanPage, 36);
+#if SCRENE_INFO_INCLUDE
 	lv_obj_set_x(ui_ImgButtonScanPage, -64);
+#else
+	lv_obj_set_x(ui_ImgButtonScanPage, 0);
+#endif
 	lv_obj_set_y(ui_ImgButtonScanPage, 128);
 	lv_obj_set_align(ui_ImgButtonScanPage, LV_ALIGN_CENTER);
 	lv_obj_add_flag(ui_ImgButtonScanPage, LV_OBJ_FLAG_SCROLL_ON_FOCUS); /// Flags
@@ -373,11 +400,14 @@ void ui_SceneHome_screen_init(void)
 	lv_obj_set_style_text_opa(ui_LabelVersion, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 	lv_obj_set_style_text_font(ui_LabelVersion, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+#if SCRENE_INFO_INCLUDE
 	lv_obj_add_event_cb(ui_ImgButtonInfoPage, ui_event_ImgButtonInfoPage, LV_EVENT_ALL, NULL);
+#endif
 	lv_obj_add_event_cb(ui_ImgButtonScanPage, ui_event_ImgButtonScanPage, LV_EVENT_ALL, NULL);
 	lv_obj_add_event_cb(ui_ImageSponser3, ui_event_ImageSponser3, LV_EVENT_ALL, NULL);
 	lv_obj_add_event_cb(ui_SceneHome, ui_event_SceneHome, LV_EVENT_ALL, NULL);
 }
+#if SCRENE_INFO_INCLUDE
 void ui_SceneInfo_screen_init(void)
 {
 	ui_SceneInfo = lv_obj_create(NULL);
@@ -510,6 +540,7 @@ void ui_SceneInfo_screen_init(void)
 
 	lv_obj_add_event_cb(ui_ImgButtonHomePage1, ui_event_ImgButtonHomePage1, LV_EVENT_ALL, NULL);
 }
+#endif
 void ui_SceneScan_screen_init(void)
 {
 	ui_SceneScan = lv_obj_create(NULL);
@@ -712,17 +743,6 @@ void ui_SceneOta_screen_init(void)
 	lv_obj_set_style_text_color(ui_LabelImgButtonOTA, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
 	lv_obj_set_style_text_opa(ui_LabelImgButtonOTA, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-	ui_LabelOTATitle = lv_label_create(ui_SceneOta);
-	lv_obj_set_width(ui_LabelOTATitle, LV_SIZE_CONTENT);  /// 1
-	lv_obj_set_height(ui_LabelOTATitle, LV_SIZE_CONTENT); /// 1
-	lv_obj_set_x(ui_LabelOTATitle, 0);
-	lv_obj_set_y(ui_LabelOTATitle, -130);
-	lv_obj_set_align(ui_LabelOTATitle, LV_ALIGN_CENTER);
-	lv_label_set_text(ui_LabelOTATitle, "OTA Setting");
-	lv_obj_set_style_text_color(ui_LabelOTATitle, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-	lv_obj_set_style_text_opa(ui_LabelOTATitle, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-	lv_obj_set_style_text_font(ui_LabelOTATitle, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
-
 	ui_ImgButtonHomePage3 = lv_btn_create(ui_SceneOta);
 	lv_obj_set_width(ui_ImgButtonHomePage3, 80);
 	lv_obj_set_height(ui_ImgButtonHomePage3, 36);
@@ -749,17 +769,17 @@ void ui_SceneOta_screen_init(void)
 	lv_obj_set_width(ui_TextAreaSSID, 317);
 	lv_obj_set_height(ui_TextAreaSSID, LV_SIZE_CONTENT); /// 40
 	lv_obj_set_x(ui_TextAreaSSID, 130);
-	lv_obj_set_y(ui_TextAreaSSID, -90);
+	lv_obj_set_y(ui_TextAreaSSID, -115);
 	lv_obj_set_align(ui_TextAreaSSID, LV_ALIGN_LEFT_MID);
 	lv_textarea_set_max_length(ui_TextAreaSSID, 32);
 	lv_textarea_set_placeholder_text(ui_TextAreaSSID, "Wifi SSID");
 	lv_textarea_set_one_line(ui_TextAreaSSID, true);
 
 	ui_TextAreaPassword = lv_textarea_create(ui_SceneOta);
-	lv_obj_set_width(ui_TextAreaPassword, 317);
+	lv_obj_set_width(ui_TextAreaPassword, 275);
 	lv_obj_set_height(ui_TextAreaPassword, LV_SIZE_CONTENT); /// 40
 	lv_obj_set_x(ui_TextAreaPassword, 130);
-	lv_obj_set_y(ui_TextAreaPassword, -45);
+	lv_obj_set_y(ui_TextAreaPassword, -70);
 	lv_obj_set_align(ui_TextAreaPassword, LV_ALIGN_LEFT_MID);
 	lv_textarea_set_max_length(ui_TextAreaPassword, 32);
 	lv_textarea_set_placeholder_text(ui_TextAreaPassword, "Wifi Password");
@@ -770,7 +790,7 @@ void ui_SceneOta_screen_init(void)
 	lv_obj_set_width(ui_LabelWifiSSID, LV_SIZE_CONTENT);  /// 1
 	lv_obj_set_height(ui_LabelWifiSSID, LV_SIZE_CONTENT); /// 1
 	lv_obj_set_x(ui_LabelWifiSSID, -367);
-	lv_obj_set_y(ui_LabelWifiSSID, -90);
+	lv_obj_set_y(ui_LabelWifiSSID, -115);
 	lv_obj_set_align(ui_LabelWifiSSID, LV_ALIGN_RIGHT_MID);
 	lv_label_set_text(ui_LabelWifiSSID, "Wifi SSID");
 	lv_obj_set_style_text_color(ui_LabelWifiSSID, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -780,7 +800,7 @@ void ui_SceneOta_screen_init(void)
 	lv_obj_set_width(ui_LabelWifiPassword, LV_SIZE_CONTENT);  /// 1
 	lv_obj_set_height(ui_LabelWifiPassword, LV_SIZE_CONTENT); /// 1
 	lv_obj_set_x(ui_LabelWifiPassword, -366);
-	lv_obj_set_y(ui_LabelWifiPassword, -45);
+	lv_obj_set_y(ui_LabelWifiPassword, -70);
 	lv_obj_set_align(ui_LabelWifiPassword, LV_ALIGN_RIGHT_MID);
 	lv_label_set_text(ui_LabelWifiPassword, "Wifi\nPassword");
 	lv_obj_set_style_text_color(ui_LabelWifiPassword, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -788,10 +808,10 @@ void ui_SceneOta_screen_init(void)
 	lv_obj_set_style_text_align(ui_LabelWifiPassword, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN | LV_STATE_DEFAULT);
 
 	ui_Keyboard2 = lv_keyboard_create(ui_SceneOta);
-	lv_obj_set_width(ui_Keyboard2, 440);
-	lv_obj_set_height(ui_Keyboard2, 125);
+	lv_obj_set_width(ui_Keyboard2, 445);
+	lv_obj_set_height(ui_Keyboard2, 160);
 	lv_obj_set_x(ui_Keyboard2, 0);
-	lv_obj_set_y(ui_Keyboard2, 45);
+	lv_obj_set_y(ui_Keyboard2, 35);
 	lv_obj_set_align(ui_Keyboard2, LV_ALIGN_CENTER);
 	lv_obj_set_style_radius(ui_Keyboard2, 6, LV_PART_MAIN | LV_STATE_DEFAULT);
 	lv_obj_set_style_bg_color(ui_Keyboard2, lv_color_hex(0x202839), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -800,11 +820,34 @@ void ui_SceneOta_screen_init(void)
 	lv_obj_set_style_border_opa(ui_Keyboard2, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 	lv_obj_set_style_border_width(ui_Keyboard2, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+	ui_ImgButtonPwReveal = lv_btn_create(ui_SceneOta);
+	lv_obj_set_width(ui_ImgButtonPwReveal, 40);
+	lv_obj_set_height(ui_ImgButtonPwReveal, 36);
+	lv_obj_set_x(ui_ImgButtonPwReveal, 190);
+	lv_obj_set_y(ui_ImgButtonPwReveal, -70);
+	lv_obj_set_align(ui_ImgButtonPwReveal, LV_ALIGN_CENTER);
+	lv_obj_add_flag(ui_ImgButtonPwReveal, LV_OBJ_FLAG_SCROLL_ON_FOCUS); /// Flags
+	lv_obj_clear_flag(ui_ImgButtonPwReveal, LV_OBJ_FLAG_SCROLLABLE);	/// Flags
+	lv_obj_set_style_radius(ui_ImgButtonPwReveal, 20, LV_PART_MAIN | LV_STATE_DEFAULT);
+	lv_obj_set_style_bg_color(ui_ImgButtonPwReveal, lv_color_hex(0x34276B), LV_PART_MAIN | LV_STATE_DEFAULT);
+	lv_obj_set_style_bg_opa(ui_ImgButtonPwReveal, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+	lv_obj_set_style_bg_grad_color(ui_ImgButtonPwReveal, lv_color_hex(0x3E69B0), LV_PART_MAIN | LV_STATE_DEFAULT);
+	lv_obj_set_style_bg_grad_dir(ui_ImgButtonPwReveal, LV_GRAD_DIR_HOR, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+	ui_ImageEye = lv_img_create(ui_ImgButtonPwReveal);
+	lv_img_set_src(ui_ImageEye, &ui_img_eye_png);
+	lv_obj_set_width(ui_ImageEye, LV_SIZE_CONTENT);	 /// 1
+	lv_obj_set_height(ui_ImageEye, LV_SIZE_CONTENT); /// 1
+	lv_obj_set_align(ui_ImageEye, LV_ALIGN_CENTER);
+	lv_obj_add_flag(ui_ImageEye, LV_OBJ_FLAG_ADV_HITTEST);	/// Flags
+	lv_obj_clear_flag(ui_ImageEye, LV_OBJ_FLAG_SCROLLABLE); /// Flags
+
 	lv_obj_add_event_cb(ui_ImgButtonOTA, ui_event_ImgButtonOTA, LV_EVENT_ALL, NULL);
 	lv_obj_add_event_cb(ui_ImgButtonHomePage3, ui_event_ImgButtonHomePage3, LV_EVENT_ALL, NULL);
 	lv_obj_add_event_cb(ui_TextAreaSSID, ui_event_TextAreaSSID, LV_EVENT_ALL, NULL);
 	lv_obj_add_event_cb(ui_TextAreaPassword, ui_event_TextAreaPassword, LV_EVENT_ALL, NULL);
 	lv_keyboard_set_textarea(ui_Keyboard2, ui_TextAreaSSID);
+	lv_obj_add_event_cb(ui_ImgButtonPwReveal, ui_event_ImgButtonPwReveal, LV_EVENT_ALL, NULL);
 }
 void ui_SceneOtaProgress_screen_init(void)
 {
@@ -864,12 +907,14 @@ void load_screen(screen_id screen)
 			lv_label_set_text(ui_LabelVersion, wifinderVersionStr);
 		}
 		break;
+#if SCRENE_INFO_INCLUDE
 	case INFO_SCREEN:
 		if (!ui_SceneInfo)
 		{
 			ui_SceneInfo_screen_init();
 		}
 		break;
+#endif
 	case SCAN_SCREEN:
 		if (!ui_SceneScan)
 		{
@@ -901,6 +946,7 @@ void unload_screen(screen_id screen)
 			ui_SceneHome = NULL;
 		}
 		break;
+#if SCRENE_INFO_INCLUDE
 	case INFO_SCREEN:
 		if (ui_SceneInfo)
 		{
@@ -908,6 +954,7 @@ void unload_screen(screen_id screen)
 			ui_SceneInfo = NULL;
 		}
 		break;
+#endif
 	case SCAN_SCREEN:
 		if (ui_SceneScan)
 		{
@@ -970,9 +1017,11 @@ void swapScreenTo(screen_id target)
 	case HOME_SCREEN:
 		swap_screen_ani(ui_SceneHome);
 		break;
+#if SCRENE_INFO_INCLUDE
 	case INFO_SCREEN:
 		swap_screen_ani(ui_SceneInfo);
 		break;
+#endif
 	case SCAN_SCREEN:
 		swap_screen_ani(ui_SceneScan);
 		break;

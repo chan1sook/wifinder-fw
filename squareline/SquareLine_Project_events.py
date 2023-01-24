@@ -74,3 +74,7 @@ def onOTAProgressPageUnloaded(event_struct):
 def onOTAProgressPageLoaded(event_struct):
     return
 
+
+def toggleOtaPwReveal(event_struct):
+    return
+

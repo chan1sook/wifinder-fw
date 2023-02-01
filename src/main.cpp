@@ -1,5 +1,5 @@
-#define WIFINDER_VERSION (10UL)
-const char *wifinderVersionStr = "1.5.0";
+#define WIFINDER_VERSION (11UL)
+const char *wifinderVersionStr = "1.5.1";
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -55,16 +55,17 @@ int wifiRssiValue, animatedWifiRssiValue;
 int compassDegValue = -1, animatedCompassDegValue = -1;
 String compassDir = "?";
 
-// EEPROM format 8|4|8 = 24 bytes
+// EEPROM format 8|4|8 = 20 bytes
 
 // 0-7: Header valid if = LOG_EEPROM_HEADER
 // 8-11: version valid if match WIFINDER_VERSION
-// 12-23: minutes usage
+// 12-20: minutes usage
 
 #define LOG_EEPROM_HEADER (0b1001111001101011010010001011001110100001101011010111110011000111ULL)
 #define LOG_EEPROM_HEADER_ADDR (0U)
-#define LOG_EEPROM_VERSION_ADDR (8U)
-#define LOG_EEPROM_MINUTES_ADDR (12U)
+#define LOG_EEPROM_VERSION_ADDR (LOG_EEPROM_HEADER_ADDR + sizeof(uint64_t))
+#define LOG_EEPROM_MINUTES_ADDR (LOG_EEPROM_VERSION_ADDR + sizeof(uint32_t))
+#define LOG_EEPROM_TOTAL_BYTES (LOG_EEPROM_MINUTES_ADDR + sizeof(uint64_t))
 
 #define WIFI_UI_UPDATE_RATE 50
 #define WIFI_BLINK_RATE 250
@@ -127,12 +128,17 @@ static void updateBuzzer();
 static void recordUsageLog();
 static void actualOTAAction();
 
+static int16_t __scanWifi(uint32_t delay = 300U)
+{
+  return WiFi.scanNetworks(true, false, false, delay);
+}
+
 void setup()
 {
   pinMode(BUZZER_GPIO, OUTPUT);
   Serial.begin(115200);
 
-  hasEeprom = EEPROM.begin(20);
+  hasEeprom = EEPROM.begin(LOG_EEPROM_TOTAL_BYTES);
   if (!hasEeprom)
   {
     Serial.println("Can't Init EEPROM");
@@ -368,7 +374,7 @@ void toSelectWifiAction(lv_event_t *e)
     rssiTimeout = MAX_RSSI_TIMEOUT;
     wifiIconBlinkTime = millis();
     wifinderScanStatus = WIFINDER_TRACKING_SCAN;
-    WiFi.scanNetworks(true);
+    __scanWifi();
   }
   else
   {
@@ -467,7 +473,8 @@ static void sortWifiOptions()
 
 static void beginScanWifi()
 {
-  WiFi.scanNetworks(true);
+  WiFi.disconnect();
+  __scanWifi(1000U);
 
   wifinderScanStatus = WIFINDER_SCANNING;
   wifiIconBlinkTime = millis();
@@ -772,7 +779,7 @@ static void updateRssi()
   int scanResult = WiFi.scanComplete();
   if (wifinderScanStatus == WIFINDER_TRACKING)
   {
-    scanResult = WiFi.scanNetworks(true);
+    scanResult = __scanWifi();
     wifinderScanStatus = WIFINDER_TRACKING_SCAN;
   }
 

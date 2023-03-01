@@ -6,6 +6,8 @@
 #include "ui.h"
 #include "ui_helpers.h"
 
+extern void setLoadingScreen();
+
 ///////////////////// VARIABLES ////////////////////
 void ui_event_SceneHome(lv_event_t *e);
 lv_obj_t *ui_SceneHome;
@@ -26,6 +28,7 @@ lv_obj_t *ui_ImageTextHome1;
 lv_obj_t *ui_ImageTextHome2;
 lv_obj_t *ui_ImageTextHome3;
 lv_obj_t *ui_LabelVersion;
+lv_obj_t *ui_LabelMac;
 
 #if SCRENE_INFO_INCLUDE
 lv_obj_t *ui_SceneInfo;
@@ -399,6 +402,17 @@ void ui_SceneHome_screen_init(void)
 	lv_obj_set_style_text_color(ui_LabelVersion, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
 	lv_obj_set_style_text_opa(ui_LabelVersion, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 	lv_obj_set_style_text_font(ui_LabelVersion, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+	ui_LabelMac = lv_label_create(ui_SceneHome);
+	lv_obj_set_width(ui_LabelMac, LV_SIZE_CONTENT);	 /// 1
+	lv_obj_set_height(ui_LabelMac, LV_SIZE_CONTENT); /// 1
+	lv_obj_set_x(ui_LabelMac, 10);
+	lv_obj_set_y(ui_LabelMac, 147);
+	lv_obj_set_align(ui_LabelMac, LV_ALIGN_LEFT_MID);
+	lv_label_set_text(ui_LabelMac, "MAC");
+	lv_obj_set_style_text_color(ui_LabelMac, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+	lv_obj_set_style_text_opa(ui_LabelMac, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+	lv_obj_set_style_text_font(ui_LabelMac, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
 
 #if SCRENE_INFO_INCLUDE
 	lv_obj_add_event_cb(ui_ImgButtonInfoPage, ui_event_ImgButtonInfoPage, LV_EVENT_ALL, NULL);
@@ -904,7 +918,7 @@ void load_screen(screen_id screen)
 		if (!ui_SceneHome)
 		{
 			ui_SceneHome_screen_init();
-			lv_label_set_text(ui_LabelVersion, wifinderVersionStr);
+			setLoadingScreen();
 		}
 		break;
 #if SCRENE_INFO_INCLUDE

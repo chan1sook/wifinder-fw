@@ -1,5 +1,5 @@
-#define WIFINDER_VERSION (11UL)
-const char *wifinderVersionStr = "1.5.1";
+#define WIFINDER_VERSION (12UL)
+const char *wifinderVersionStr = "1.5.2";
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -127,6 +127,7 @@ static void updateRssi();
 static void updateBuzzer();
 static void recordUsageLog();
 static void actualOTAAction();
+void setLoadingScreen();
 
 static int16_t __scanWifi(uint32_t delay = 300U)
 {
@@ -990,4 +991,11 @@ static void actualOTAAction()
   lv_obj_clear_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ImgButtonBackToOTA, LV_OBJ_FLAG_CLICKABLE);
   WiFi.disconnect();
+}
+
+void setLoadingScreen()
+{
+  lv_label_set_text(ui_LabelVersion, wifinderVersionStr);
+  String mac = WiFi.macAddress();
+  lv_label_set_text(ui_LabelMac, mac.c_str());
 }

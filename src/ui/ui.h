@@ -42,6 +42,7 @@ extern "C"
   extern lv_obj_t *ui_ImageTextHome2;
   extern lv_obj_t *ui_ImageTextHome3;
   extern lv_obj_t *ui_LabelVersion;
+  extern lv_obj_t *ui_LabelMac;
 #if SCRENE_INFO_INCLUDE
   extern lv_obj_t *ui_SceneInfo;
   void ui_event_ImgButtonHomePage1(lv_event_t *e);
@@ -161,6 +162,7 @@ extern "C"
 
   void ui_init(void);
 
+  extern void setLoadingScreen();
 #ifdef __cplusplus
 } /*extern "C"*/
 #endif

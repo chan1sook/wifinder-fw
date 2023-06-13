@@ -1,0 +1,6 @@
+(sym_lib_table
+  (lib (name "LCSC_Library-V6")(type "KiCad")(uri "D:/Project-workspace/Kicad-workspace/Kicad_Librarys/LCSC_Library-V6.kicad_sym")(options "")(descr ""))
+  (lib (name "schematic_lib")(type "KiCad")(uri "D:/Project-workspace/Kicad-workspace/LogiSenses-workspace/WT32-SC01_EXT/librarys/Schematic/schematic_lib.kicad_sym")(options "")(descr ""))
+  (lib (name "lcsc_schematic_lib")(type "KiCad")(uri "D:/Project-workspace/Kicad-workspace/LogiSenses-workspace/WT32-SC01_EXT/librarys/Schematic/lcsc_schematic_lib.kicad_sym")(options "")(descr ""))
+  (lib (name "b-schematic_lib")(type "KiCad")(uri "D:/librarys/Schematic/b-schematic_lib.kicad_sym")(options "")(descr ""))
+)

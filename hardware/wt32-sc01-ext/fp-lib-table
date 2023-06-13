@@ -1,0 +1,6 @@
+(fp_lib_table
+  (lib (name "lcsc_fp")(type "KiCad")(uri "D:/Project-workspace/Kicad-workspace/Kicad_Librarys/Footprint_libs/lcsc_fp.pretty")(options "")(descr ""))
+  (lib (name "M.2-Templates")(type "KiCad")(uri "D:/Project-workspace/Kicad-workspace/Kicad_Librarys/Footprint_libs/M.2-Templates.pretty")(options "")(descr ""))
+  (lib (name "footprint")(type "KiCad")(uri "D:/Project-workspace/Kicad-workspace/LogiSenses-workspace/WT32-SC01_EXT/librarys/footprint.pretty")(options "")(descr ""))
+  (lib (name "lcsc_fp-V6")(type "KiCad")(uri "D:/Project-workspace/Kicad-workspace/Kicad_Librarys/Footprint_libs/lcsc_fp-V6.pretty")(options "")(descr ""))
+)
